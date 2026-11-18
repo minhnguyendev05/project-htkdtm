@@ -13,11 +13,11 @@
 
 | STT | Họ và Tên | Mã Sinh Viên | Lớp Sinh Hoạt | Vai Trò | Nhiệm Vụ Phân Công | Tỷ Lệ Đóng Góp (%) | Email |
 | :-: | :--- | :-: | :-: | :--- | :--- | :-: | :--- |
-| 1 | Nguyễn Anh Minh | 2351160537 | 65HTTT | Nhóm trưởng | Backend/Lead (khó): thiết kế kiến trúc, FastAPI, xác thực và phân quyền, tích hợp adapter, review code | [Điền tỷ lệ] | 2351160537@e.tlu.edu.vn |
-| 2 | Lê Minh Tú | 2351160562 | 65HTTT | Thành viên | AI/ML (khó): tiền xử lý dữ liệu, baseline, mô hình dự báo nhu cầu, price optimizer, đánh giá MAE/RMSE; kiêm Frontend nâng cao: màn hình đề xuất giá và phê duyệt | [Điền tỷ lệ] | 2351160562@e.tlu.edu.vn |
-| 3 | Nghiêm Xuân Trường | 2351160561 | 65HTTT | Thành viên | Automation/BI/QA (trung bình): Celery worker, adapter/simulator, 3 dashboard Apache Superset, test case và tài liệu | [Điền tỷ lệ] | 2351160561@e.tlu.edu.vn |
-| 4 | Trần Đức Trung | 2251162191 | 64HTTT1 | Thành viên | ERP/Data (trung bình): CRUD sản phẩm, nhà cung cấp, tồn kho, schema PostgreSQL, seed data | [Điền tỷ lệ] | 2351160501@e.tlu.edu.vn |
-| 5 | Nguyễn Thị Yên | 2351160567 | 65HTTT | Thành viên | Frontend cơ bản (dễ hơn): màn hình CRUD, bảng dữ liệu, tìm kiếm/lọc/phân trang, biểu mẫu nhập liệu | [Điền tỷ lệ] | 2351160567@e.tlu.edu.vn |
+| 1 | Nguyễn Anh Minh | 2351160537 | 65HTTT | Nhóm trưởng / Backend Lead | Thiết kế kiến trúc tổng thể, cấu hình Docker Compose, xây dựng FastAPI lõi, xác thực JWT và phân quyền RBAC, tích hợp Marketplace Adapter, điều phối review code nhóm | [Điền tỷ lệ] | 2351160537@e.tlu.edu.vn |
+| 2 | Lê Minh Tú | 2351160562 | 65HTTT | AI / ML Engineer & Frontend nâng cao | Tiền xử lý dữ liệu ERP và lịch sử giá, cài đặt công thức giá sàn Pmin, Rule Engine, huấn luyện mô hình Baseline và XGBoost, đánh giá MAE/RMSE, phát triển màn hình Đề xuất giá và Phê duyệt trên React | [Điền tỷ lệ] | 2351160562@e.tlu.edu.vn |
+| 3 | Nghiêm Xuân Trường | 2351160561 | 65HTTT | Data Crawler, Automation & BI Engineer | Phát triển adapter Crawler cho các nguồn lịch sử giá, cửa hàng bán lẻ và API; thuật toán khớp nối SKU, cấu hình Celery/Redis, Marketplace Simulator, 3 Dashboard Apache Superset và kiểm thử QA | [Điền tỷ lệ] | 2351160561@e.tlu.edu.vn |
+| 4 | Trần Đức Trung | 2251162191 | 64HTTT1 | Database & ERP Developer | Thiết kế schema 16 bảng PostgreSQL, chuẩn hóa dữ liệu 60-100 SKU và lịch sử bán hàng (seed data), phát triển API CRUD Sản phẩm, Nhà cung cấp, Giá vốn, Tồn kho và Kênh bán | [Điền tỷ lệ] | 2251162191@e.tlu.edu.vn |
+| 5 | Nguyễn Thị Yên | 2351160567 | 65HTTT | Frontend Developer | Xây dựng giao diện React và Tailwind CSS cho các phân hệ ERP (Danh mục, Sản phẩm, Nhà cung cấp, Tồn kho, Kênh bán), bảng dữ liệu tìm kiếm/lọc/phân trang và biểu mẫu nhập liệu | [Điền tỷ lệ] | 2351160567@e.tlu.edu.vn |
 
 ---
 
