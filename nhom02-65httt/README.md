@@ -15,4 +15,21 @@ Thư mục mã nguồn, tài liệu và báo cáo của nhóm `nhom02-65httt`.
 
 React + Vite + Tailwind, FastAPI, PostgreSQL, Redis, Celery, Scikit-learn/XGBoost, Apache Superset, Docker Compose.
 
-Hướng dẫn cài đặt và khởi chạy sẽ được bổ sung cùng mã nguồn của nhóm.
+## Chạy frontend ở chế độ Empty State
+
+Yêu cầu: Node.js 20 trở lên.
+
+```powershell
+cd src/frontend
+npm ci
+npm run dev
+```
+
+Frontend mặc định chạy ở `http://localhost:5173` với `VITE_EMPTY_DEMO=true`; clone mới không cần database, API hay file dữ liệu riêng.
+
+Tài khoản demo:
+
+- Email: `admin@erp.demo`
+- Mật khẩu: `demo1234`
+
+Các tài khoản demo khác có thể xem trong màn hình đăng nhập.

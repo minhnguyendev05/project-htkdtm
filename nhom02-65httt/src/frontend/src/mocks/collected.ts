@@ -1,22 +1,10 @@
 /*
- * Collected competitor price data — REAL TikTok Shop VN data.
+ * Collected competitor price data.
  *
- * Source: ReefAPI tiktok-shop v1 `category_products` (market=vn), fetched in a
- * single batch of 6 leaf categories x 50 products (~299 records).
- * This is planned seed data for the MVP ("dữ liệu dự kiến"). It is NOT mapped
- * to internal SKUs yet — treat marketplaceCode + externalProductId as the key.
- *
- * Rules honoured (see SPEC.md / BUSINESS_RULES.md):
- * - listedPrice and effectivePrice are kept separate; a promotional price is
- *   never used as the listed price.
- * - Records with effectivePrice <= 1000 VND are bait listings and flagged
- *   isOutlier = true (do not use as a primary signal, BR-005).
- * - sourceType = API, confidence = 0.9 (structured product-page data).
- *
- * Regenerate: POST /tiktok-shop/v1/category_products {category_id, market:"vn",
- * max_results:50} per category, then normalize into this JSON.
+ * This module contains no private or locally generated seed file. Its arrays
+ * remain in the mock API so a fresh clone can build without external data.
+ * Replace these values with real API data in a future backend integration.
  */
-import raw from './collected-tiktok-vn.json';
 
 export interface CollectedCompetitorPrice {
   id: string;
@@ -55,10 +43,17 @@ export interface CollectedMeta {
   note: string;
 }
 
-export const COLLECTED_COMPETITOR_META = raw.meta as CollectedMeta;
+export const COLLECTED_COMPETITOR_META: CollectedMeta = {
+  marketplaceCode: 'TIKTOK_SHOP',
+  market: 'vn',
+  collectedAt: '',
+  source: '',
+  categoryCounts: {},
+  total: 0,
+  note: 'Demo empty state',
+};
 
-export const COLLECTED_COMPETITOR_PRICES =
-  raw.records as CollectedCompetitorPrice[];
+export const COLLECTED_COMPETITOR_PRICES: CollectedCompetitorPrice[] = [];
 
 /** Records safe to use as a pricing signal (fresh, not bait). */
 export function usableCollectedPrices(): CollectedCompetitorPrice[] {
