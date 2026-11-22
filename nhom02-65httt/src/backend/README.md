@@ -93,3 +93,15 @@ Mọi endpoint dưới prefix `/api/v1` tuân thủ thống nhất:
   )
   ```
   Khi triển khai Seller Partner API thật cho một kênh, dùng `register_adapter(channel_code, "LIVE", factory)`.
+
+## 5. Schema 18 bảng & Các API đã sẵn sàng
+
+- **Schema & Migrations:** Toàn bộ 18 bảng (ERP lõi, kênh bán, dữ liệu đối thủ, Smart Pricing, phê duyệt, đồng bộ giá, ML runs, `audit_logs`) đã được khai báo trong `app/models/` (`erp.py`, `market.py`, `pricing.py`, `audit_log.py`, `user.py`), migration `alembic/versions/0002_erp_smart_pricing_schema.py` và file SQL tham chiếu tại [../database/schema.sql](../database/schema.sql).
+- **Endpoints hiện có dưới `/api/v1`:**
+  - `GET /health`
+  - `POST /auth/login`, `GET /auth/me`
+  - `GET /users`, `POST /users`, `PATCH /users/{user_id}`
+  - `GET /audit-logs` (`AUDIT_READ`)
+  - `GET /channels`, `GET /channel-fees`, `POST /channels/{channel_id}/test-connection`
+  - `GET /executions`, `POST /executions`, `POST /executions/{execution_id}/retry`, `POST /executions/{execution_id}/cancel`
+- **Celery task:** `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
