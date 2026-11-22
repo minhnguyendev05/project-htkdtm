@@ -32,7 +32,7 @@ Mở Pull Request trên GitHub fork (`minhnguyendev05/project-htkdtm`):
 - **base:** `nhom02-65httt`
 - **compare:** `nhom02-<ten>`
 
-Quy ước tiền tố commit: `feat`, `fix`, `docs`, `refactor`, `test` (ví dụ: `feat(nhom02-65httt): them API quan ly san pham`).
+Quy ước tiền tố commit: Chỉ dùng đúng 3 loại `feat`, `fix`, `docs` theo README gốc của giảng viên (dù chuẩn Conventional Commits quốc tế có thêm `refactor`, `test`..., nhưng không dùng để tránh lệch quy chuẩn dự án; ví dụ: `feat(nhom02-65httt): them API quan ly san pham`).
 
 ## 3. Phân vùng sở hữu thư mục theo phân công
 
