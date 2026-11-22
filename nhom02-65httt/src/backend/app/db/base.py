@@ -1,9 +1,11 @@
-"""SQLAlchemy DeclarativeBase with consistent constraint naming."""
+"""SQLAlchemy DeclarativeBase with consistent constraint naming and timestamp mixins."""
 
 from __future__ import annotations
 
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
@@ -14,7 +16,35 @@ NAMING_CONVENTION: dict[str, str] = {
 }
 
 
+def utc_now() -> datetime:
+    """Return current timezone-aware UTC timestamp."""
+    return datetime.now(UTC)
+
+
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class CreatedAtMixin:
+    """Immutable creation timestamp column."""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+    )
+
+
+class TimestampMixin(CreatedAtMixin):
+    """Creation and last-update timestamp columns."""
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=func.now(),
+        onupdate=utc_now,
+    )
