@@ -18,6 +18,7 @@ from app.core.rbac import Role
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.services.channels import seed_default_channels
 
 DEMO_SEED_USERS: tuple[tuple[str, str, Role], ...] = (
     ("admin@erp.demo", "Nguyễn Quản Trị", Role.ADMIN),
@@ -64,8 +65,12 @@ def main() -> int:
         return 1
 
     with SessionLocal() as db:
-        created, skipped = seed_demo_users(db, password)
-    print(f"Seed users hoàn tất: tạo mới {created}, đã tồn tại {skipped}.")
+        u_created, u_skipped = seed_demo_users(db, password)
+        c_created, c_skipped = seed_default_channels(db)
+    print(
+        f"Seed hoàn tất: users(tạo mới {u_created}, tồn tại {u_skipped}); "
+        f"channels(tạo mới {c_created}, tồn tại {c_skipped})."
+    )
     return 0
 
 

@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.common import Envelope, PageMeta
 from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.services.audit import record_audit_log
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -65,7 +66,7 @@ def list_users(
 @router.post("", response_model=Envelope[UserRead], status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
-    _: User = Depends(require_permission(Permission.USER_MANAGE)),
+    current_user: User = Depends(require_permission(Permission.USER_MANAGE)),
     db: Session = Depends(get_db),
 ) -> Envelope[UserRead]:
     """Create a new user with an initial role and hashed password."""
@@ -81,6 +82,13 @@ def create_user(
         is_active=True,
     )
     db.add(user)
+    record_audit_log(
+        db,
+        actor=current_user.full_name,
+        action="CREATE_USER",
+        resource_type="user",
+        after_summary=f"{user.email} ({user.role})",
+    )
     try:
         db.commit()
     except IntegrityError as exc:
@@ -110,6 +118,8 @@ def update_user(
         if new_role is not None and new_role.value != user.role:
             raise ConflictError("Không thể tự thay đổi vai trò của chính mình.")
 
+    before_summary = f"fullName={user.full_name}, role={user.role}, isActive={user.is_active}"
+
     if "full_name" in updates and updates["full_name"] is not None:
         user.full_name = updates["full_name"]
     if "role" in updates and updates["role"] is not None:
@@ -117,6 +127,14 @@ def update_user(
     if "is_active" in updates and updates["is_active"] is not None:
         user.is_active = updates["is_active"]
 
+    record_audit_log(
+        db,
+        actor=current_user.full_name,
+        action="UPDATE_USER",
+        resource_type="user",
+        before_summary=before_summary,
+        after_summary=f"fullName={user.full_name}, role={user.role}, isActive={user.is_active}",
+    )
     db.commit()
     db.refresh(user)
     return Envelope(data=UserRead.model_validate(user))
