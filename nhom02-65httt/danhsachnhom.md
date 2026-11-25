@@ -13,11 +13,11 @@
 
 | STT | Họ và Tên | Mã Sinh Viên | Lớp Sinh Hoạt | Vai Trò | Nhiệm Vụ Phân Công | Tỷ Lệ Đóng Góp (%) | Email |
 | :-: | :--- | :-: | :-: | :--- | :--- | :-: | :--- |
-| 1 | Nguyễn Anh Minh | 2351160537 | 65HTTT | Nhóm trưởng / Backend Lead | Thiết kế kiến trúc tổng thể, cấu hình Docker Compose, xây dựng FastAPI lõi, xác thực JWT và phân quyền RBAC, tích hợp Marketplace Adapter, điều phối review code nhóm | [Điền tỷ lệ] | 2351160537@e.tlu.edu.vn |
-| 2 | Lê Minh Tú | 2351160562 | 65HTTT | AI / ML Engineer & Frontend nâng cao | Tiền xử lý dữ liệu ERP và lịch sử giá, cài đặt công thức giá sàn Pmin, Rule Engine, huấn luyện mô hình Baseline và XGBoost, đánh giá MAE/RMSE, phát triển màn hình Đề xuất giá và Phê duyệt trên React | [Điền tỷ lệ] | 2351160562@e.tlu.edu.vn |
-| 3 | Nghiêm Xuân Trường | 2351160561 | 65HTTT | Data Crawler, Automation & BI Engineer | Phát triển adapter Crawler cho các nguồn lịch sử giá, cửa hàng bán lẻ và API; thuật toán khớp nối SKU, cấu hình Celery/Redis, Marketplace Simulator, 3 Dashboard Apache Superset và kiểm thử QA | [Điền tỷ lệ] | 2351160561@e.tlu.edu.vn |
-| 4 | Trần Đức Trung | 2251162191 | 64HTTT1 | Database & ERP Developer | Thiết kế schema 16 bảng PostgreSQL, chuẩn hóa dữ liệu 60-100 SKU và lịch sử bán hàng (seed data), phát triển API CRUD Sản phẩm, Nhà cung cấp, Giá vốn, Tồn kho và Kênh bán | [Điền tỷ lệ] | 2251162191@e.tlu.edu.vn |
-| 5 | Nguyễn Thị Yên | 2351160567 | 65HTTT | Frontend Developer | Xây dựng giao diện React và Tailwind CSS cho các phân hệ ERP (Danh mục, Sản phẩm, Nhà cung cấp, Tồn kho, Kênh bán), bảng dữ liệu tìm kiếm/lọc/phân trang và biểu mẫu nhập liệu | [Điền tỷ lệ] | 2351160567@e.tlu.edu.vn |
+| 1 | Nguyễn Anh Minh | 2351160537 | 65HTTT | Nhóm trưởng / Backend Core & Integration Lead | Thiết kế kiến trúc tổng thể, cấu hình Docker Compose 7 dịch vụ, xây dựng FastAPI lõi, xác thực JWT và phân quyền RBAC, Schema 18 bảng ORM & Alembic, Marketplace Adapter/Simulator, API users/channels/executions/audit-logs/dashboard, nối luồng Approve sang Celery sync, đưa bộ Crawler nền vào dự án, điều phối review/merge PR và tích hợp cuối kỳ | [Điền tỷ lệ] | 2351160537@e.tlu.edu.vn |
+| 2 | Lê Minh Tú | 2351160562 | 65HTTT | AI / ML & Smart Pricing Backend Engineer | Tiền xử lý dữ liệu ERP và lịch sử giá, cài đặt công thức giá sàn Pmin, Rule Engine (4 chốt chặn & Explainability), huấn luyện và đánh giá Linear Regression vs XGBoost (Time-based Split, MAE/RMSE, bảng model_runs), phát triển API Smart Pricing & Approval (pricing-rules, pricing/preview, pricing/run, recommendations, approve/reject) và viết unit/API test phân hệ AI Pricing | [Điền tỷ lệ] | 2351160562@e.tlu.edu.vn |
+| 3 | Nghiêm Xuân Trường | 2351160561 | 65HTTT | Data Crawler, Scheduler & BI (Superset) Engineer | Kế thừa và chuẩn hóa 5-Adapter Crawler từ app/crawler/, thuật toán khớp nối SKU (RapidFuzz + cảnh báo sale ảo), phát triển API Competitor & Crawler (competitors, competitor-prices, /crawler/run, /crawler/ingest-cdp, duyệt NEEDS_REVIEW), cấu hình lịch chạy Celery Beat, dựng 3 Dashboard Apache Superset trên Star Schema views, đối chiếu số liệu BI và kiểm thử E2E | [Điền tỷ lệ] | 2351160561@e.tlu.edu.vn |
+| 4 | Trần Đức Trung | 2251162191 | 64HTTT1 | Database Seed, ERP Backend & OLAP Views Developer | Kế thừa schema 18 bảng PostgreSQL, chuẩn hóa và viết script seed 60-100 SKU công nghệ, nhà cung cấp, giá vốn, tồn kho và lịch sử bán hàng (Kaggle), phát triển API CRUD ERP (categories, suppliers, products, cost_components, inventory, channel-listings), viết SQL Views Star Schema (src/database/views_bi.sql) cho Apache Superset và viết test phân hệ ERP | [Điền tỷ lệ] | 2251162191@e.tlu.edu.vn |
+| 5 | Nguyễn Thị Yên | 2351160567 | 65HTTT | Frontend Lead | Sở hữu toàn bộ giao diện React + TypeScript + Tailwind CSS (src/frontend/) cho mọi phân hệ (ERP, Đối thủ, Đề xuất giá, Phê duyệt, Quy tắc, Thực thi, BI, Quản trị), tách lớp HTTP Client kết nối FastAPI thật thay cho mock API, xử lý lỗi theo API contract, hoàn thiện biểu mẫu nhập liệu và viết unit test Vitest lõi | [Điền tỷ lệ] | 2351160567@e.tlu.edu.vn |
 
 ---
 
@@ -49,8 +49,9 @@ nhom02-65httt/
 
 ### 4.2. Các bước cài đặt và khởi chạy
 
-1. Bước 1: Sao chép tệp cấu hình mẫu `.env.example` thành `.env` và điền tham số kết nối cơ sở dữ liệu, Redis, secret key.
-2. Bước 2: Cài đặt các gói phụ thuộc cho backend và frontend.
-3. Bước 3: Khởi chạy dịch vụ bằng Docker Compose (`docker compose up -d`).
-
-> Phần này sẽ được cập nhật đầy đủ khi mã nguồn của nhóm được đưa vào thư mục `src/`.
+1. Bước 1: Tại `nhom02-65httt/`, sao chép `.env.example` thành `.env` và cấu hình tham số PostgreSQL, Redis, `JWT_SECRET_KEY`, `SEED_DEFAULT_PASSWORD`.
+2. Bước 2: Khởi chạy hạ tầng và backend bằng Docker Compose:
+   `docker compose up -d --build postgres redis backend celery_worker celery_beat`
+3. Bước 3: Nạp dữ liệu khởi tạo tài khoản và kênh bán mặc định:
+   `docker compose exec backend python -m app.scripts.seed_users`
+4. Bước 4: Xem chi tiết quy trình phát triển và chạy local trong `CONTRIBUTING.md` và `src/backend/README.md`.
