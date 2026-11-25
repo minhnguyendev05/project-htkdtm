@@ -1,0 +1,29 @@
+{
+  "fetchedAt": "2026-11-25T01:30:53.719Z",
+  "rates": {
+    "CNY": {
+      "base": "CNY",
+      "quote": "VND",
+      "rate": 3864.98847,
+      "source": "currency-api-jsdelivr",
+      "checked": [
+        {
+          "source": "currency-api-jsdelivr",
+          "value": 3864.98847,
+          "deviationPct": 0
+        },
+        {
+          "source": "open.er-api.com",
+          "value": 3861.003861,
+          "deviationPct": -0.1031
+        }
+      ],
+      "bank": {
+        "buy": 3770.34,
+        "transfer": 3808.42,
+        "sell": 3930.51
+      },
+      "warnings": []
+    }
+  }
+}
