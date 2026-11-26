@@ -64,5 +64,4 @@ def reject(rid: str):
         if r["id"] == rid:
             r["status"] = "rejected"
             return r
-    raise HTTPException(status_code=404, detail="not found")
-"""
+        raise HTTPException(status_code=404, detail="not found")
