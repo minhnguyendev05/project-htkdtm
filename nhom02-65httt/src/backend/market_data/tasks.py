@@ -6,6 +6,7 @@ from pathlib import Path
 from app.db.session import SessionLocal
 from app.worker.celery_app import celery_app
 
+from .load_postgres import crawl_active_products
 from .adapters import (
     DatasetSnapshotAdapter,
     GiarevnAstroAdapter,
@@ -109,3 +110,21 @@ def ingest_dataset_snapshot_task(input_path: str | None = None) -> dict:
         "dataset_snapshot",
         adapter_options={"csv_path": str(source)},
     )
+
+
+@celery_app.task(name="market_data.tasks.crawl_active_products_task")
+def crawl_active_products_task(
+    limit: int = 100,
+    min_products: int = 60,
+    min_delay: float = 2.0,
+    max_delay: float = 4.0,
+) -> dict:
+    """Run the scheduled bulk crawl and fail visibly if the ERP catalog is too small."""
+    with SessionLocal() as db:
+        return crawl_active_products(
+            db,
+            limit=limit,
+            min_products=min_products,
+            min_delay=min_delay,
+            max_delay=max_delay,
+        )

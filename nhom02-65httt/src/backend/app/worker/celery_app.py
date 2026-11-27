@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
 
@@ -22,7 +23,16 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     beat_schedule={
-        # Scheduled crawl, pricing, and sync jobs will be registered here.
+        "market-data-daily-active-product-crawl": {
+            "task": "market_data.tasks.crawl_active_products_task",
+            "schedule": crontab(hour=2, minute=0),
+            "kwargs": {
+                "limit": 100,
+                "min_products": 60,
+                "min_delay": 2.0,
+                "max_delay": 4.0,
+            },
+        },
     },
 )
 

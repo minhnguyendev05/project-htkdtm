@@ -187,7 +187,7 @@ CREATE TABLE IF NOT EXISTS competitor_prices (
     rating NUMERIC(3, 2) NULL,
     confidence NUMERIC(5, 2) NOT NULL DEFAULT 1.00,
     match_status VARCHAR(24) NOT NULL DEFAULT 'AUTO_MATCHED' CHECK (
-        match_status IN ('AUTO_MATCHED', 'NEEDS_REVIEW', 'REJECTED')
+        match_status IN ('AUTO_MATCHED', 'MANUALLY_MATCHED', 'NEEDS_REVIEW', 'REJECTED')
     ),
     verdict VARCHAR(100) NULL,
     fake_sale_warning BOOLEAN NOT NULL DEFAULT FALSE,

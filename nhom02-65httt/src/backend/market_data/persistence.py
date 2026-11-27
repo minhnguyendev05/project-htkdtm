@@ -15,6 +15,7 @@ from .matching import extract_model, match_sku
 from .normalize import normalize_dataframe
 
 SOURCE_TYPES = {
+    "cdp": "API",
     "dataset_snapshot": "CSV",
     "giarevn": "PUBLIC_PAGE",
     "lazada": "PUBLIC_PAGE",
@@ -24,6 +25,7 @@ SOURCE_TYPES = {
 }
 
 SOURCE_NAMES = {
+    "cdp": "Chrome CDP capture",
     "dataset_snapshot": "CSV snapshot",
     "giarevn": "Giarevn price history",
     "lazada": "Lazada product page",
@@ -31,6 +33,8 @@ SOURCE_NAMES = {
     "retail_html": "Retail product page",
     "tiki": "Tiki API",
 }
+
+FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT = Decimal("50")
 
 
 def _utc_datetime(value: Any) -> datetime:
@@ -56,6 +60,32 @@ def _bounded_text(value: Any, field: str, limit: int, *, required: bool = False)
     if len(text) > limit:
         raise ValueError(f"{field} vượt quá giới hạn {limit} ký tự.")
     return text or None
+
+
+def _has_fake_sale_warning(row: dict[str, Any]) -> bool:
+    """Flag discounts of at least 50% for human review, not as proof of fraud."""
+    price = Decimal(str(row["price_vnd"]))
+    original_price = row.get("original_price_vnd")
+    discount_percent = row.get("discount_percent")
+
+    has_lower_reference_price = (
+        original_price is not None
+        and not pd.isna(original_price)
+        and Decimal(str(original_price)) > price
+    )
+    if discount_percent is not None and not pd.isna(discount_percent):
+        if has_lower_reference_price and Decimal(str(discount_percent)) >= (
+            FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT
+        ):
+            return True
+    if has_lower_reference_price:
+        actual_discount = (
+            (Decimal(str(original_price)) - price)
+            / Decimal(str(original_price))
+            * Decimal("100")
+        )
+        return actual_discount >= FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT
+    return False
 
 
 def _candidate_matches(
@@ -300,6 +330,7 @@ def persist_competitor_prices(
             listing.confidence = Decimal(str(min(max(confidence, 0), 1)))
             listing.match_status = match_status
             listing.verdict = verdict
+            listing.fake_sale_warning = _has_fake_sale_warning(row)
             listing.observed_at = observed_at
 
         history_key = (listing.id, history_date)

@@ -112,6 +112,34 @@ def test_persist_upserts_listing_and_history_without_duplicate_rows(
     assert db_session.scalar(select(CompetitorPriceHistory)).price == Decimal("950000.00")
 
 
+def test_persist_flags_discount_at_or_above_50_percent(
+    db_session: Session,
+) -> None:
+    _create_product(db_session)
+    records = _records().assign(original_price_vnd=2_000_000)
+
+    persist_competitor_prices(db_session, records, adapter_name="tiki")
+    db_session.commit()
+
+    listing = db_session.scalar(select(CompetitorPrice))
+    assert listing is not None
+    assert listing.fake_sale_warning is True
+
+
+def test_persist_does_not_flag_discount_below_50_percent(
+    db_session: Session,
+) -> None:
+    _create_product(db_session)
+    records = _records().assign(original_price_vnd=1_500_000)
+
+    persist_competitor_prices(db_session, records, adapter_name="tiki")
+    db_session.commit()
+
+    listing = db_session.scalar(select(CompetitorPrice))
+    assert listing is not None
+    assert listing.fake_sale_warning is False
+
+
 def test_unmatched_listing_is_saved_for_manual_review(db_session: Session) -> None:
     _create_product(db_session)
     records = _records().assign(
@@ -208,3 +236,13 @@ def test_crawl_active_products_requires_minimum_active_skus(
             min_products=2,
             adapter_factory=lambda **kwargs: None,
         )
+
+
+def test_celery_beat_schedules_daily_bulk_crawl() -> None:
+    schedule = celery_app.conf.beat_schedule[
+        "market-data-daily-active-product-crawl"
+    ]
+
+    assert schedule["task"] == "market_data.tasks.crawl_active_products_task"
+    assert schedule["schedule"].hour == {2}
+    assert schedule["schedule"].minute == {0}

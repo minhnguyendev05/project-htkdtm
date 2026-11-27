@@ -47,6 +47,25 @@ Bộ adapter chuẩn hóa đang nằm trong `market_data/adapters/`; task
 listing và lịch sử hằng ngày vào hai bảng ORM chuẩn `competitor_prices` và
 `competitor_price_history`, không dùng schema crawler riêng.
 
+API `POST /api/v1/crawler/ingest-cdp` nhận `structuredRecords` do Mode C
+collector trả về. Để gửi trực tiếp sau khi crawl, đặt
+`CRAWLER_CDP_INGEST_URL`, `CRAWLER_CDP_INGEST_TOKEN` (JWT có quyền
+`COMPETITOR_WRITE`) rồi chạy collector với `--url` hoặc `--listen`. API không
+truy cập các URL trong payload; nó chỉ nhận dữ liệu đã thu thập, chuẩn hóa và
+ghi vào các bảng ORM chuẩn. Payload được giới hạn tối đa 100 record mỗi request.
+
+Các bản ghi `NEEDS_REVIEW` có thể được lọc ở `GET /api/v1/competitor-prices`
+với `matchStatus=NEEDS_REVIEW`, rồi xử lý bằng
+`POST /api/v1/competitor-prices/{id}/review`. Duyệt sẽ gắn SKU ACTIVE và đặt
+trạng thái `MANUALLY_MATCHED`; từ chối sẽ đặt `REJECTED`. Cả hai quyết định đều
+cần lý do và được ghi vào `audit_logs`.
+
+Celery Beat chạy bulk crawl Tiki mỗi ngày lúc 02:00 theo múi giờ
+`Asia/Ho_Chi_Minh`; lệnh đòi hỏi tối thiểu 60 sản phẩm ERP ACTIVE, crawl tối đa
+100 sản phẩm và giữ khoảng nghỉ 2–4 giây giữa các lượt tìm kiếm. Cờ
+`fake_sale_warning` được bật khi giá niêm yết thấp hơn giá gốc hợp lệ ít nhất
+50%; đây là ngưỡng rà soát, không phải kết luận một listing gian lận.
+
 Các adapter hiện có: `tiki`, `lazada`, `retail_html`, `giarevn`,
 `price_history` và `dataset_snapshot`. Ví dụ gọi API:
 
@@ -58,7 +77,6 @@ Content-Type: application/json
 {"adapterName":"tiki","keyword":"AirPods","limit":5,"skuCode":"ERP-AIRPODS-4"}
 ```
 
-Schema được tạo/cập nhật bằng Alembic chuẩn của backend. Các collector trong
-`app/crawler/` vẫn là công cụ PoC riêng; output của chúng chưa tự động ghi vào
-database. URL gửi tới các adapter trang bán lẻ phải dùng HTTPS và đúng domain
-được cho phép; chuyển hướng bị từ chối.
+Schema được tạo/cập nhật bằng Alembic chuẩn của backend. URL gửi tới các adapter
+trang bán lẻ phải dùng HTTPS và đúng domain được cho phép; chuyển hướng bị từ
+chối.

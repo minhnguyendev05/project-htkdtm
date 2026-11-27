@@ -7,8 +7,11 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.core.rbac import Role
+from app.models.erp import Category, Product
 from app.models.market import CompetitorPrice, CompetitorPriceHistory
+from app.models.audit_log import AuditLog
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
@@ -147,3 +150,95 @@ def test_list_competitor_prices_reads_canonical_table(
     assert history.status_code == 200
     assert history.json()["meta"]["total"] == 1
     assert history.json()["data"][0]["price"] == "1000000.00"
+
+
+def test_cdp_ingest_normalizes_and_persists_structured_capture(
+    client: TestClient,
+    db_session: Session,
+    make_user,
+    auth_headers,
+) -> None:
+    operator = make_user("cdp-ingest-operator@erp.demo", role=Role.PRICING_ANALYST)
+
+    response = client.post(
+        "/api/v1/crawler/ingest-cdp",
+        headers=auth_headers(operator),
+        json={
+            "structuredRecords": [
+                {
+                    "platform": "shopee",
+                    "recordType": "pdp",
+                    "shopId": 123,
+                    "itemId": 456,
+                    "name": "Apple AirPods 4",
+                    "priceVnd": 1_000_000,
+                    "originalPriceVnd": 2_000_000,
+                    "shopName": "Shop Demo",
+                    "capturedAtUtc": "2026-11-27T12:00:00Z",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["data"]["rowsCreated"] == 1
+    assert response.json()["data"]["rowsSkipped"] == 0
+    listing = db_session.scalar(select(CompetitorPrice))
+    assert listing is not None
+    assert listing.source_type == "API"
+    assert listing.marketplace_code == "SHOPEE"
+    assert listing.external_item_id == "456"
+    assert listing.fake_sale_warning is True
+    assert listing.source_url == "https://shopee.vn/product/123/456"
+
+
+def test_review_queue_approves_match_and_audits_decision(
+    client: TestClient,
+    db_session: Session,
+    make_user,
+    auth_headers,
+) -> None:
+    category = Category(code="REVIEW", name="Review")
+    db_session.add(category)
+    db_session.flush()
+    product = Product(
+        sku_code="ERP-REVIEW-1",
+        name="Review Product",
+        category_id=category.id,
+        current_price=Decimal("100000"),
+    )
+    listing = CompetitorPrice(
+        product_name="Observed Product",
+        competitor_name="Shop",
+        marketplace_code="TIKI",
+        source_type="API",
+        source_name="Tiki API",
+        external_item_id="review-item",
+        listed_price=Decimal("90000"),
+        confidence=Decimal("0.70"),
+        match_status="NEEDS_REVIEW",
+        verdict="Manual review required",
+        observed_at=datetime(2026, 11, 27, tzinfo=UTC),
+    )
+    db_session.add_all([product, listing])
+    db_session.commit()
+    operator = make_user("match-review-operator@erp.demo", role=Role.PRICING_ANALYST)
+
+    response = client.post(
+        f"/api/v1/competitor-prices/{listing.id}/review",
+        headers=auth_headers(operator),
+        json={
+            "decision": "APPROVE",
+            "skuCode": "erp-review-1",
+            "reason": "Model and brand verified",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["matchStatus"] == "MANUALLY_MATCHED"
+    assert response.json()["data"]["skuCode"] == "ERP-REVIEW-1"
+    event = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "APPROVE_COMPETITOR_MATCH")
+    )
+    assert event is not None
+    assert event.reason == "Model and brand verified"

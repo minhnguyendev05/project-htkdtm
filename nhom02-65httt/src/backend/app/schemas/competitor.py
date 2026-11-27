@@ -119,6 +119,109 @@ class CrawlerRunRead(ApiModel):
     status: Literal["QUEUED"] = "QUEUED"
 
 
+class CdpCaptureItem(ApiModel):
+    """A structured product observation emitted by the Chrome CDP collector."""
+
+    item_id: str | int | None = None
+    shop_id: str | int | None = None
+    sku_id: str | int | None = None
+    name: str | None = Field(default=None, max_length=500)
+    title: str | None = Field(default=None, max_length=500)
+    price_vnd: Decimal | None = Field(default=None, gt=0)
+    original_price_vnd: Decimal | None = Field(default=None, gt=0)
+    price_before_discount_vnd: Decimal | None = Field(default=None, gt=0)
+    sold: int | None = Field(default=None, ge=0)
+    historical_sold: int | None = Field(default=None, ge=0)
+    rating_star: Decimal | None = Field(default=None, ge=0, le=5)
+    shop_name: str | None = Field(default=None, max_length=150)
+    brand: str | None = Field(default=None, max_length=100)
+    url: str | None = Field(default=None, max_length=500)
+    captured_at_utc: datetime | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _validate_marketplace_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        allowed_hosts = {
+            "shopee.vn",
+            "www.shopee.vn",
+            "lazada.vn",
+            "www.lazada.vn",
+            "shop.tiktok.com",
+            "www.tiktok.com",
+        }
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "https"
+            or host not in allowed_hosts
+            or parsed.port not in (None, 443)
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("URL phải dùng HTTPS và thuộc một marketplace được hỗ trợ.")
+        return value
+
+
+class CdpCaptureRecord(CdpCaptureItem):
+    """Top-level record shape returned in structured_records by the CDP collector."""
+
+    platform: Literal["shopee", "lazada", "tiktok_shop"]
+    record_type: str | None = Field(default=None, max_length=64)
+    items: list[CdpCaptureItem] = Field(default_factory=list, max_length=100)
+
+
+class CdpIngestCreate(ApiModel):
+    """Batch of structured records produced by the operator-owned CDP collector."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    structured_records: list[CdpCaptureRecord] = Field(min_length=1, max_length=100)
+
+
+class CdpIngestRead(ApiModel):
+    """Summary of a CDP batch persisted into canonical competitor tables."""
+
+    records_received: int
+    rows_skipped: int
+    rows_created: int
+    rows_updated: int
+    history_rows_created: int
+    history_rows_updated: int
+
+
+class CompetitorMatchReviewCreate(ApiModel):
+    """Manual decision for a competitor listing awaiting SKU review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["APPROVE", "REJECT"]
+    sku_code: str | None = Field(default=None, min_length=1, max_length=64)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("sku_code")
+    @classmethod
+    def _normalize_sku_code(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else None
+
+    @field_validator("reason")
+    @classmethod
+    def _strip_reason(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Cần nêu lý do xử lý.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _require_sku_when_approved(self) -> CompetitorMatchReviewCreate:
+        if self.decision == "APPROVE" and not self.sku_code:
+            raise ValueError("Cần cung cấp skuCode khi duyệt match.")
+        if self.decision == "REJECT" and self.sku_code:
+            raise ValueError("Không truyền skuCode khi từ chối match.")
+        return self
+
+
 class CompetitorPriceRead(ApiModel):
     """Canonical competitor listing from the shared 18-table schema."""
 

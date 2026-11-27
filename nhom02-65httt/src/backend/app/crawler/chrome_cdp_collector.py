@@ -814,6 +814,11 @@ def main() -> None:
     parser.add_argument("--profile", default=DEFAULT_PROFILE_DIR, help="Thư mục Chrome Profile")
     parser.add_argument("--wait", type=int, default=12, help="Số giây tối đa đợi mỗi URL")
     parser.add_argument(
+        "--ingest-url",
+        default=os.getenv("CRAWLER_CDP_INGEST_URL"),
+        help="POST kết quả structured_records tới endpoint ingest CDP đã cấu hình.",
+    )
+    parser.add_argument(
         "--no-launch", action="store_true", help="Không tự bật Chrome nếu cổng CDP chưa mở"
     )
     args = parser.parse_args()
@@ -886,6 +891,43 @@ def main() -> None:
     with open(OUT_FILE, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     print(f"Đã lưu kết quả Mode C tại: {OUT_FILE}")
+
+    if args.ingest_url:
+        token = os.getenv("CRAWLER_CDP_INGEST_TOKEN")
+        if not token:
+            parser.error("Cần CRAWLER_CDP_INGEST_TOKEN khi dùng --ingest-url.")
+        structured_records = [
+            record
+            for result in output.get("url_results", [])
+            for record in result.get("structured_records", [])
+            if record.get("platform") in {"shopee", "lazada", "tiktok_shop"}
+        ]
+        structured_records.extend(
+            record
+            for record in output.get("live_listen_records", [])
+            if record.get("platform") in {"shopee", "lazada", "tiktok_shop"}
+        )
+        if not structured_records:
+            raise RuntimeError("Không có structured_records hợp lệ để gửi tới API.")
+        request = urllib.request.Request(
+            args.ingest_url,
+            data=json.dumps({"structured_records": structured_records}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status not in (200, 201):
+                raise RuntimeError(
+                    f"CDP ingest trả về HTTP {response.status}."
+                )
+            result = json.loads(response.read().decode("utf-8"))
+        print(
+            "[CDP INGEST]",
+            json.dumps(result.get("data", {}), ensure_ascii=False),
+        )
 
 
 if __name__ == "__main__":
