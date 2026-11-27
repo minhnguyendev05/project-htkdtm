@@ -11,6 +11,9 @@ from app.api.v1.endpoints import (
     dashboard,
     executions,
     health,
+    pricing,
+    pricing_rules,
+    recommendations,
     users,
 )
 
@@ -22,3 +25,6 @@ api_router.include_router(audit_logs.router)
 api_router.include_router(channels.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(executions.router)
+api_router.include_router(pricing_rules.router)
+api_router.include_router(pricing.router)
+api_router.include_router(recommendations.router)

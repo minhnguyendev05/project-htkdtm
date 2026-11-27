@@ -1,11 +1,11 @@
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "pricing_engine/tests"]
 pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["app", "tests", "alembic"]
+src = ["app", "tests", "alembic", "pricing_engine", "ml"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
