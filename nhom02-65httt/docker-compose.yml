@@ -97,9 +97,7 @@ services:
       redis:
         condition: service_healthy
 
-  # Bo dong `profiles: ["frontend"]` sau khi merge nhanh frontend cua Yen vao nhom02-65httt.
   frontend:
-    profiles: ["frontend"]
     build:
       context: ./src/frontend
       dockerfile: ../../infra/frontend/Dockerfile.dev

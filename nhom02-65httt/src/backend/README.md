@@ -103,6 +103,7 @@ Mọi endpoint dưới prefix `/api/v1` tuân thủ thống nhất:
   - `GET /users`, `POST /users`, `PATCH /users/{user_id}`
   - `GET /audit-logs` (`AUDIT_READ`)
   - `GET /channels`, `GET /channel-fees`, `POST /channels/{channel_id}/test-connection`
-  - `GET /executions`, `POST /executions`, `POST /executions/{execution_id}/retry`, `POST /executions/{execution_id}/cancel`
+  - `GET /dashboard` (`BI_READ`)
+  - `GET /executions`, `POST /executions`, `POST /executions/from-recommendation/{recommendation_id}`, `POST /executions/{execution_id}/retry`, `POST /executions/{execution_id}/cancel`
 - **Celery task:** `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
 - **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng đã tích hợp sẵn; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`.
