@@ -55,3 +55,16 @@ nhom02-65httt/
 3. Bước 3: Nạp dữ liệu khởi tạo tài khoản và kênh bán mặc định:
    `docker compose exec backend python -m app.scripts.seed_users`
 4. Bước 4: Xem chi tiết quy trình phát triển và chạy local trong `CONTRIBUTING.md` và `src/backend/README.md`.
+
+---
+
+## 5. Tiến Độ Và Cột Mốc Hiện Tại
+
+| Cột mốc | Nội dung | Trạng thái |
+| :--- | :--- | :--- |
+| Phân tích đề tài | Xác định phạm vi ERP, AI, BI và quy trình smart pricing | Hoàn thành |
+| Thiết kế dữ liệu | Schema 18 bảng PostgreSQL và script seed SKU | Đang thực hiện |
+| Mô hình nền | Cài đặt mô hình hồi quy tuyến tính baseline cho nhu cầu | Hoàn thành |
+| Rule Engine | Xây dựng công thức Pmin và quy tắc phê duyệt | Đang thực hiện |
+| Giao diện | Thiết kế màn hình quản lý ERP và đề xuất giá | Đang thực hiện |
+| Tích hợp BI | Kết nối Apache Superset với dữ liệu PostgreSQL | Chờ thực hiện |
