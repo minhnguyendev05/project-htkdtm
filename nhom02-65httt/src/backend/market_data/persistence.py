@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 from app.models.erp import Product
 from app.models.market import CompetitorPrice, CompetitorPriceHistory
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from .matching import extract_model, match_sku
@@ -164,7 +165,9 @@ def persist_competitor_prices(
             "history_rows_updated": 0,
         }
 
-    normalized = normalize_dataframe(records)
+    normalized = normalize_dataframe(records).sort_values(
+        ["marketplace", "product_id", "observed_at"]
+    )
     products = list(
         db.scalars(select(Product).where(Product.status == "ACTIVE")).all()
     )
@@ -174,6 +177,60 @@ def persist_competitor_prices(
         "rows_updated": 0,
         "history_rows_created": 0,
         "history_rows_updated": 0,
+    }
+
+    external_ids_by_marketplace = {
+        marketplace: group["product_id"].unique().tolist()
+        for marketplace, group in normalized.groupby("marketplace", sort=False)
+    }
+    listings_by_key: dict[tuple[str, str], CompetitorPrice] = {}
+    for marketplace, external_ids in external_ids_by_marketplace.items():
+        for offset in range(0, len(external_ids), 500):
+            batch_ids = external_ids[offset : offset + 500]
+            existing = db.scalars(
+                select(CompetitorPrice).where(
+                    CompetitorPrice.marketplace_code == marketplace,
+                    CompetitorPrice.external_item_id.in_(batch_ids),
+                )
+            ).all()
+            for listing in existing:
+                key = (listing.marketplace_code, listing.external_item_id or "")
+                current = listings_by_key.get(key)
+                if current is None or _utc_datetime(listing.observed_at) > _utc_datetime(
+                    current.observed_at
+                ):
+                    listings_by_key[key] = listing
+
+    incoming_dates: dict[tuple[str, str], set[date]] = {}
+    for row in normalized[["marketplace", "product_id", "observed_at"]].itertuples(
+        index=False
+    ):
+        key = (row.marketplace, row.product_id)
+        incoming_dates.setdefault(key, set()).add(_utc_datetime(row.observed_at).date())
+
+    history_keys = [
+        (listing.id, observed_date)
+        for key, observed_dates in incoming_dates.items()
+        if (listing := listings_by_key.get(key)) is not None
+        for observed_date in observed_dates
+    ]
+    history_by_key: dict[tuple[Any, date], CompetitorPriceHistory] = {}
+    for offset in range(0, len(history_keys), 300):
+        batch_keys = history_keys[offset : offset + 300]
+        existing_history = db.scalars(
+            select(CompetitorPriceHistory).where(
+                tuple_(
+                    CompetitorPriceHistory.competitor_price_id,
+                    CompetitorPriceHistory.recorded_date,
+                ).in_(batch_keys)
+            )
+        ).all()
+        for history in existing_history:
+            history_by_key[(history.competitor_price_id, history.recorded_date)] = history
+
+    latest_observed_by_key = {
+        key: _utc_datetime(listing.observed_at)
+        for key, listing in listings_by_key.items()
     }
 
     for row in normalized.to_dict(orient="records"):
@@ -198,18 +255,13 @@ def persist_competitor_prices(
         )
         observed_at = _utc_datetime(row["observed_at"])
         listed_price = Decimal(str(row["price_vnd"]))
-
-        listing = db.scalar(
-            select(CompetitorPrice)
-            .where(
-                CompetitorPrice.marketplace_code == marketplace,
-                CompetitorPrice.external_item_id == external_id,
-            )
-            .order_by(CompetitorPrice.observed_at.desc())
-        )
+        listing_key = (marketplace or "", external_id or "")
+        history_date = observed_at.date()
+        listing = listings_by_key.get(listing_key)
         is_new = listing is None
         if listing is None:
             listing = CompetitorPrice(
+                id=uuid4(),
                 product_name=product.name if product is not None else title[:255],
                 competitor_name=competitor_name or marketplace or "",
                 marketplace_code=marketplace or "",
@@ -219,11 +271,15 @@ def persist_competitor_prices(
                 observed_at=observed_at,
             )
             db.add(listing)
+            listings_by_key[listing_key] = listing
+            latest_observed_by_key[listing_key] = observed_at
             counts["rows_created"] += 1
         else:
             counts["rows_updated"] += 1
 
-        if is_new or _utc_datetime(listing.observed_at) <= observed_at:
+        previous_latest = latest_observed_by_key[listing_key]
+        is_latest_observation = observed_at >= previous_latest
+        if is_new or is_latest_observation:
             listing.product_id = product.id if product is not None else None
             listing.sku_code = product.sku_code if product is not None else None
             listing.product_name = product.name if product is not None else title[:255]
@@ -246,24 +302,18 @@ def persist_competitor_prices(
             listing.verdict = verdict
             listing.observed_at = observed_at
 
-        db.flush()
-        history_date: date = observed_at.date()
-        history = db.scalar(
-            select(CompetitorPriceHistory).where(
-                CompetitorPriceHistory.competitor_price_id == listing.id,
-                CompetitorPriceHistory.recorded_date == history_date,
-            )
-        )
+        history_key = (listing.id, history_date)
+        history = history_by_key.get(history_key)
         if history is None:
-            db.add(
-                CompetitorPriceHistory(
-                    competitor_price_id=listing.id,
-                    recorded_date=history_date,
-                    price=listed_price,
-                )
+            history = CompetitorPriceHistory(
+                competitor_price_id=listing.id,
+                recorded_date=history_date,
+                price=listed_price,
             )
+            db.add(history)
+            history_by_key[history_key] = history
             counts["history_rows_created"] += 1
-        elif is_new or _utc_datetime(listing.observed_at) <= observed_at:
+        elif is_latest_observation:
             history.price = listed_price
             counts["history_rows_updated"] += 1
 

@@ -4,9 +4,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pandas as pd
+import pytest
 from app.models.erp import Category, Product
 from app.models.market import CompetitorPrice, CompetitorPriceHistory
 from app.worker.celery_app import celery_app
+from market_data.load_postgres import crawl_active_products
 from market_data.persistence import persist_competitor_prices
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -130,3 +132,79 @@ def test_unmatched_listing_is_saved_for_manual_review(db_session: Session) -> No
     assert listing.product_id is None
     assert listing.sku_code is None
     assert listing.match_status == "REJECTED"
+
+
+def test_crawl_active_products_persists_60_skus_without_network(
+    db_session: Session,
+) -> None:
+    category = Category(code="BATCH", name="Batch")
+    db_session.add(category)
+    db_session.flush()
+    products = [
+        Product(
+            sku_code=f"ERP-{index:03}",
+            name=f"Device Model {index:03}",
+            brand="DemoBrand",
+            category_id=category.id,
+            current_price=Decimal("100000"),
+        )
+        for index in range(60)
+    ]
+    db_session.add_all(products)
+    db_session.flush()
+
+    class FakeAdapter:
+        def __init__(self, **kwargs) -> None:
+            self.session = self
+            self.keywords: list[str] = []
+
+        def fetch(self, *, keyword: str, limit: int) -> pd.DataFrame:
+            self.keywords.append(keyword)
+            index = int(keyword.rsplit(" ", 1)[-1])
+            return pd.DataFrame(
+                [
+                    {
+                        "marketplace": "TIKI",
+                        "category": "batch",
+                        "product_id": f"listing-{index:03}",
+                        "title": keyword,
+                        "brand": "DemoBrand",
+                        "price_vnd": 90_000 + index,
+                        "observed_at": datetime(2026, 11, 27, tzinfo=UTC),
+                    }
+                ]
+            )
+
+        def close(self) -> None:
+            return None
+
+    result = crawl_active_products(
+        db_session,
+        limit=60,
+        min_products=60,
+        min_delay=0,
+        max_delay=0,
+        adapter_factory=FakeAdapter,
+    )
+    db_session.commit()
+
+    assert result["products_requested"] == 60
+    assert result["products_with_results"] == 60
+    assert result["rows_created"] == 60
+    assert result["history_rows_created"] == 60
+    assert len(db_session.scalars(select(CompetitorPrice)).all()) == 60
+    assert len(db_session.scalars(select(CompetitorPriceHistory)).all()) == 60
+
+
+def test_crawl_active_products_requires_minimum_active_skus(
+    db_session: Session,
+) -> None:
+    _create_product(db_session)
+
+    with pytest.raises(ValueError, match="cần ít nhất 2 SKU"):
+        crawl_active_products(
+            db_session,
+            limit=60,
+            min_products=2,
+            adapter_factory=lambda **kwargs: None,
+        )

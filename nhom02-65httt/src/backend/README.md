@@ -113,3 +113,21 @@ Mọi endpoint dưới prefix `/api/v1` tuân thủ thống nhất:
   - `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
   - `market_data.tasks.crawl_and_store_task` thu thập, chuẩn hóa và ghi `competitor_prices` cùng `competitor_price_history`.
 - **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`. Dùng `/api/v1/crawler/run` để gọi adapter tích hợp trong `market_data/`.
+
+### Nạp snapshot hoặc crawl 60–100 SKU vào PostgreSQL
+
+Sau khi PostgreSQL đã chạy và `alembic upgrade head` đã tạo schema 18 bảng,
+chạy trong thư mục backend:
+
+```powershell
+# Nạp toàn bộ snapshot CSV vào competitor_prices và competitor_price_history
+.\.venv\Scripts\python.exe -m market_data.load_postgres ..\..\datasets\competitor-prices-vnd.csv
+
+# Crawl sản phẩm ERP ACTIVE trên Tiki; mặc định yêu cầu ít nhất 60 SKU
+.\.venv\Scripts\python.exe -m market_data.load_postgres --crawl-active-products --limit 100 --min-products 60
+```
+
+Chế độ crawl lấy SKU từ bảng `products`; nó dừng có thông báo nếu chưa có đủ
+sản phẩm ACTIVE. Mỗi SKU dùng tên ERP làm từ khóa Tiki, giới hạn 20 kết quả,
+nghỉ ngẫu nhiên 2–4 giây giữa các yêu cầu và commit từng SKU để giữ tiến độ
+nếu một yêu cầu mạng thất bại. Không cần Redis cho lệnh CLI này.
