@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 import pandas as pd
@@ -20,6 +21,12 @@ NOISE_WORDS = {
 
 def normalize_name(value: str) -> str:
     value = str(value or "").casefold()
+    value = value.replace("đ", "d")
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(
+        char for char in value
+        if not unicodedata.combining(char)
+    )
     value = re.sub(r"[^a-z0-9]+", " ", value)
     tokens = [t for t in value.split() if t not in NOISE_WORDS]
     return " ".join(tokens)

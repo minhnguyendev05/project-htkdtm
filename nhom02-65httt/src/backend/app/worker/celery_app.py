@@ -12,6 +12,7 @@ celery_app = Celery(
     "erp_smart_pricing",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
+    include=["market_data.tasks"],
 )
 
 celery_app.conf.update(

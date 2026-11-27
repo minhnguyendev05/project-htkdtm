@@ -2,8 +2,9 @@
 
 ## Kết nối
 - Database: PostgreSQL của nhóm.
-- Schema bổ sung: chạy `../sql/market_data_schema.sql` sau khi thành viên Database duyệt.
-- Dataset Superset: `bi_competitor_latest_price`, `bi_competitor_marketplace_summary`, `bi_competitor_price_daily`, `bi_sku_matching_quality`.
+- Schema: dùng migration Alembic chuẩn của ứng dụng (`alembic upgrade head`); không tạo schema crawler riêng.
+- Bảng dữ liệu crawler: `competitor_prices` và `competitor_price_history`.
+- Dataset Superset: tạo từ hai bảng trên; repository chưa định nghĩa các view BI riêng cho dữ liệu đối thủ.
 
 ## Dashboard 1 – Profitability Dashboard
 Mục tiêu theo đề cương: doanh thu, lợi nhuận gộp, biên lợi nhuận ròng theo thời gian; phân tích theo danh mục/kênh; cảnh báo SKU sát Pmin.
@@ -15,7 +16,7 @@ Nguồn bắt buộc: fact_sales và bảng/nguồn giá đề xuất Pmin của
 4. Table: SKU có giá bán gần Pmin.
 
 ## Dashboard 2 – Competitor & Price History
-Nguồn hiện có: `bi_competitor_latest_price`, `bi_competitor_marketplace_summary`, `bi_competitor_price_daily`.
+Nguồn hiện có: `competitor_prices` (giá quan sát mới nhất của từng listing) và `competitor_price_history` (giá theo ngày).
 
 Chart đề xuất:
 1. Big Number: số sản phẩm đối thủ, số sàn, thời điểm crawl mới nhất.

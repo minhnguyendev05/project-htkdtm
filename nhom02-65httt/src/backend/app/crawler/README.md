@@ -37,8 +37,26 @@ cd nhom02-65httt\src\backend
      ```
    - Lưu ý: Output tạm `cdp_captured_payloads.json` đã được đưa vào `.gitignore`, không commit lên Git.
 
-## 3. Hướng phát triển tiếp cho thành viên phụ trách (Nghiêm Xuân Trường)
+## 3. Adapter, Celery và lưu trữ dữ liệu
 
-1. Tách các hàm crawl trong `multi_platform_crawler.py` thành 5 Adapter chuẩn ghi dữ liệu thật vào bảng `competitor_prices` và `competitor_price_history`.
-2. Cài đặt bước chuẩn hóa & khớp nối SKU (`RapidFuzz` ngưỡng `>= 85%` tự động khớp, `65%–84%` gắn `NEEDS_REVIEW`, `< 65%` bỏ qua) và gắn cờ `fake_sale_warning`.
-3. Xây dựng các API `GET/POST /api/v1/competitors`, `GET /api/v1/competitor-prices`, `POST /api/v1/crawler/run`, `POST /api/v1/crawler/ingest-cdp` và đăng ký lịch chạy định kỳ trong `app/worker/celery_app.py`.
+Bộ adapter chuẩn hóa đang nằm trong `market_data/adapters/`; task
+`market_data.tasks.crawl_and_store_task` được đăng ký trên Celery chung
+`app.worker.celery_app`. Task lưu listing và lịch sử hằng ngày vào hai bảng
+ORM chuẩn `competitor_prices` và `competitor_price_history`, không dùng schema
+crawler riêng.
+
+Các adapter hiện có: `tiki`, `lazada`, `retail_html`, `giarevn`,
+`price_history` và `dataset_snapshot`. Ví dụ gọi task trong môi trường backend:
+
+```python
+from market_data.tasks import crawl_and_store_task
+
+crawl_and_store_task.delay(
+    "tiki",
+    fetch_kwargs={"keyword": "AirPods", "limit": 5},
+)
+```
+
+Schema được tạo/cập nhật bằng Alembic chuẩn của backend. Các collector trong
+`app/crawler/` vẫn là công cụ PoC riêng; muốn ghi dữ liệu từ chúng vào database
+thì cần chuyển output qua adapter/task chuẩn hóa ở trên.
