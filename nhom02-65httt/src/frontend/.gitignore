@@ -8,5 +8,4 @@ dist-ssr
 .vite
 .contextia/
 src/mocks/collected-tiktok-vn.json
-!.env
 !.env.example
