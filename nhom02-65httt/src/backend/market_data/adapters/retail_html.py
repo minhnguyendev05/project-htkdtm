@@ -8,7 +8,15 @@ from bs4 import BeautifulSoup
 
 from .base import CompetitorSourceAdapter
 
-ALLOWED_RETAIL_DOMAINS = {"websosanh.vn", "www.websosanh.vn", "cellphones.com.vn", "www.cellphones.com.vn", "memoryzone.com.vn", "www.memoryzone.com.vn"}
+ALLOWED_RETAIL_DOMAINS = {
+    "websosanh.vn",
+    "www.websosanh.vn",
+    "cellphones.com.vn",
+    "www.cellphones.com.vn",
+    "memoryzone.com.vn",
+    "www.memoryzone.com.vn",
+}
+
 
 class RetailHtmlAdapter(CompetitorSourceAdapter):
     marketplace = "RETAIL_WEB"
@@ -26,7 +34,9 @@ class RetailHtmlAdapter(CompetitorSourceAdapter):
             raise ValueError(f"Domain chưa được cho phép: {host}")
         response = self.request(url, allow_redirects=False)
         if response.is_redirect:
-            raise ValueError("Trang bán lẻ chuyển hướng; hãy cung cấp URL trang sản phẩm chính tắc.")
+            raise ValueError(
+                "Trang bán lẻ chuyển hướng; hãy cung cấp URL trang sản phẩm chính tắc."
+            )
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
         rows = []
@@ -45,14 +55,30 @@ class RetailHtmlAdapter(CompetitorSourceAdapter):
                 if "Product" not in (typ if isinstance(typ, list) else [typ]):
                     continue
                 offers = item.get("offers", {})
-                if isinstance(offers, list): offers = offers[0] if offers else {}
+                if isinstance(offers, list):
+                    offers = offers[0] if offers else {}
                 if isinstance(offers, dict) and offers.get("price"):
-                    rows.append(self.record(
-                        marketplace="RETAIL_WEB", category="retail", product_id=str(item.get("sku") or item.get("mpn") or item.get("url") or url),
-                        title=item.get("name", ""), brand=(item.get("brand", {}) or {}).get("name", "") if isinstance(item.get("brand"), dict) else item.get("brand", ""),
-                        price_vnd=float(offers["price"]), original_price_vnd=None,
-                        rating=(item.get("aggregateRating", {}) or {}).get("ratingValue") if isinstance(item.get("aggregateRating"), dict) else None,
-                        review_count=(item.get("aggregateRating", {}) or {}).get("reviewCount") if isinstance(item.get("aggregateRating"), dict) else None,
-                        url=item.get("url", url), confidence=0.65,
-                    ))
+                    rows.append(
+                        self.record(
+                            marketplace="RETAIL_WEB",
+                            category="retail",
+                            product_id=str(
+                                item.get("sku") or item.get("mpn") or item.get("url") or url
+                            ),
+                            title=item.get("name", ""),
+                            brand=(item.get("brand", {}) or {}).get("name", "")
+                            if isinstance(item.get("brand"), dict)
+                            else item.get("brand", ""),
+                            price_vnd=float(offers["price"]),
+                            original_price_vnd=None,
+                            rating=(item.get("aggregateRating", {}) or {}).get("ratingValue")
+                            if isinstance(item.get("aggregateRating"), dict)
+                            else None,
+                            review_count=(item.get("aggregateRating", {}) or {}).get("reviewCount")
+                            if isinstance(item.get("aggregateRating"), dict)
+                            else None,
+                            url=item.get("url", url),
+                            confidence=0.65,
+                        )
+                    )
         return pd.DataFrame(rows)

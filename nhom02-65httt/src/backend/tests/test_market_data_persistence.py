@@ -19,6 +19,7 @@ def test_market_data_tasks_use_the_shared_celery_app() -> None:
 
     assert "market_data.tasks.crawl_and_store_task" in celery_app.tasks
     assert "market_data.tasks.ingest_dataset_snapshot_task" in celery_app.tasks
+    assert "market_data.tasks.crawl_active_products_task" in celery_app.tasks
 
 
 def _records(price: int = 1_000_000) -> pd.DataFrame:

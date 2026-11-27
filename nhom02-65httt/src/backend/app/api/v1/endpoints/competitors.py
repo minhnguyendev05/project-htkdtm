@@ -10,6 +10,7 @@ from uuid import UUID
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Query, status
+from market_data.persistence import persist_competitor_prices
 from market_data.tasks import crawl_and_store_task
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,7 +33,6 @@ from app.schemas.competitor import (
     CrawlerRunRead,
 )
 from app.services.audit import record_audit_log
-from market_data.persistence import persist_competitor_prices
 
 router = APIRouter(tags=["competitors"])
 
@@ -153,143 +153,142 @@ def run_crawler(
 
 
 @router.post(
-        "/crawler/ingest-cdp",
-        response_model=Envelope[CdpIngestRead],
-        status_code=status.HTTP_201_CREATED,
+    "/crawler/ingest-cdp",
+    response_model=Envelope[CdpIngestRead],
+    status_code=status.HTTP_201_CREATED,
 )
 def ingest_cdp_records(
-        payload: CdpIngestCreate,
-        current_user: User = Depends(require_permission(Permission.COMPETITOR_WRITE)),
-        db: Session = Depends(get_db),
+    payload: CdpIngestCreate,
+    _: User = Depends(require_permission(Permission.COMPETITOR_WRITE)),
+    db: Session = Depends(get_db),
 ) -> Envelope[CdpIngestRead]:
-        """Persist structured CDP observations without accepting or fetching raw URLs."""
-        rows: list[dict] = []
-        records_received = 0
-        for record in payload.structured_records:
-            candidates = record.items or [record]
-            for item in candidates:
-                records_received += 1
-                item_id = item.item_id or item.sku_id
-                title = item.name or item.title
-                price = item.price_vnd
-                if not item_id or not title or price is None:
-                    continue
+    """Persist structured CDP observations without accepting or fetching raw URLs."""
+    rows: list[dict[str, object]] = []
+    records_received = 0
+    for record in payload.structured_records:
+        candidates = record.items or [record]
+        for item in candidates:
+            records_received += 1
+            item_id = item.item_id or item.sku_id
+            title = item.name or item.title
+            price = item.price_vnd
+            if not item_id or not title or price is None:
+                continue
 
-                marketplace = record.platform.upper()
-                shop_id = item.shop_id or record.shop_id
-                source_url = item.url or record.url
-                if not source_url and marketplace == "SHOPEE" and shop_id:
-                    source_url = f"https://shopee.vn/product/{shop_id}/{item_id}"
-                original_price = (
-                    item.original_price_vnd or item.price_before_discount_vnd
+            marketplace = record.platform.upper()
+            shop_id = item.shop_id or record.shop_id
+            source_url = item.url or record.url
+            if not source_url and marketplace == "SHOPEE" and shop_id:
+                source_url = f"https://shopee.vn/product/{shop_id}/{item_id}"
+            original_price = item.original_price_vnd or item.price_before_discount_vnd
+            discount_percent = None
+            if original_price and original_price > price:
+                discount_percent = float(
+                    (original_price - price) / original_price * Decimal("100")
                 )
-                discount_percent = None
-                if original_price and original_price > price:
-                    discount_percent = float(
-                        (original_price - price) / original_price * Decimal("100")
-                    )
-                rows.append(
-                    {
-                        "marketplace": marketplace,
-                        "category": marketplace.casefold(),
-                        "product_id": str(item_id),
-                        "title": title,
-                        "brand": item.brand,
-                        "seller": item.shop_name or record.shop_name or marketplace,
-                        "price_vnd": float(price),
-                        "original_price_vnd": (
-                            float(original_price) if original_price is not None else None
-                        ),
-                        "discount_percent": discount_percent,
-                        "sold": item.sold
+            rows.append(
+                {
+                    "marketplace": marketplace,
+                    "category": marketplace.casefold(),
+                    "product_id": str(item_id),
+                    "title": title,
+                    "brand": item.brand,
+                    "seller": item.shop_name or record.shop_name or marketplace,
+                    "price_vnd": float(price),
+                    "original_price_vnd": (
+                        float(original_price) if original_price is not None else None
+                    ),
+                    "discount_percent": discount_percent,
+                    "sold": (
+                        item.sold
                         if item.sold is not None
-                        else item.historical_sold,
-                        "rating": (
-                            float(item.rating_star)
-                            if item.rating_star is not None
-                            else None
-                        ),
-                        "observed_at": (
-                            item.captured_at_utc
-                            or record.captured_at_utc
-                            or datetime.now(UTC)
-                        ),
-                        "url": source_url,
-                        "confidence": 0.8,
-                    }
-                )
-
-        if not rows:
-            raise ConflictError(
-                "Không có bản ghi CDP đủ mã sản phẩm, tên và giá để nạp."
+                        else item.historical_sold
+                    ),
+                    "rating": (
+                        float(item.rating_star)
+                        if item.rating_star is not None
+                        else None
+                    ),
+                    "observed_at": (
+                        item.captured_at_utc
+                        or record.captured_at_utc
+                        or datetime.now(UTC)
+                    ),
+                    "url": source_url,
+                    "confidence": 0.8,
+                }
             )
-        if len(rows) > 100:
-            raise ConflictError("Mỗi lần nạp CDP tối đa 100 sản phẩm.")
 
-        result = persist_competitor_prices(
-            db,
-            pd.DataFrame(rows),
-            adapter_name="cdp",
+    if not rows:
+        raise ConflictError(
+            "Không có bản ghi CDP đủ mã sản phẩm, tên và giá để nạp."
         )
-        db.commit()
-        return Envelope(
-            data=CdpIngestRead(
-                records_received=records_received,
-                rows_skipped=records_received - len(rows),
-                **result,
-            )
+
+    result = persist_competitor_prices(
+        db,
+        pd.DataFrame(rows),
+        adapter_name="cdp",
+    )
+    db.commit()
+    return Envelope(
+        data=CdpIngestRead(
+            records_received=records_received,
+            rows_skipped=records_received - result["rows_received"],
+            **result,
         )
+    )
 
 
 @router.post(
-        "/competitor-prices/{competitor_price_id}/review",
-        response_model=Envelope[CompetitorPriceRead],
+    "/competitor-prices/{competitor_price_id}/review",
+    response_model=Envelope[CompetitorPriceRead],
 )
 def review_competitor_match(
-        competitor_price_id: UUID,
-        payload: CompetitorMatchReviewCreate,
-        current_user: User = Depends(require_permission(Permission.COMPETITOR_WRITE)),
-        db: Session = Depends(get_db),
+    competitor_price_id: UUID,
+    payload: CompetitorMatchReviewCreate,
+    current_user: User = Depends(require_permission(Permission.COMPETITOR_WRITE)),
+    db: Session = Depends(get_db),
 ) -> Envelope[CompetitorPriceRead]:
-        """Approve a manual SKU match or reject a listing awaiting review."""
-        listing = db.get(CompetitorPrice, competitor_price_id)
-        if listing is None:
-            raise NotFoundError("Không tìm thấy sản phẩm đối thủ.")
-        if listing.match_status != "NEEDS_REVIEW":
-            raise ConflictError("Chỉ xử lý sản phẩm đang ở trạng thái NEEDS_REVIEW.")
+    """Approve a manual SKU match or reject a listing awaiting review."""
+    listing = db.get(CompetitorPrice, competitor_price_id)
+    if listing is None:
+        raise NotFoundError("Không tìm thấy sản phẩm đối thủ.")
+    if listing.match_status != "NEEDS_REVIEW":
+        raise ConflictError("Chỉ xử lý sản phẩm đang ở trạng thái NEEDS_REVIEW.")
 
-        before_summary = f"{listing.match_status}:{listing.sku_code or '-'}"
-        if payload.decision == "APPROVE":
-            product = db.scalar(
-                select(Product).where(
-                    Product.sku_code == payload.sku_code,
-                    Product.status == "ACTIVE",
-                )
+    before_summary = f"{listing.match_status}:{listing.sku_code or '-'}"
+    if payload.decision == "APPROVE":
+        product = db.scalar(
+            select(Product).where(
+                Product.sku_code == payload.sku_code,
+                Product.status == "ACTIVE",
             )
-            if product is None:
-                raise NotFoundError("Không tìm thấy SKU ACTIVE để liên kết.")
-            listing.product_id = product.id
-            listing.sku_code = product.sku_code
-            listing.product_name = product.name
-            listing.match_status = "MANUALLY_MATCHED"
-            listing.verdict = f"Duyệt thủ công: {payload.reason[:80]}"
-            action = "APPROVE_COMPETITOR_MATCH"
-        else:
-            listing.product_id = None
-            listing.sku_code = None
-            listing.match_status = "REJECTED"
-            listing.verdict = f"Từ chối thủ công: {payload.reason[:80]}"
-            action = "REJECT_COMPETITOR_MATCH"
-
-        record_audit_log(
-            db,
-            actor=current_user.full_name,
-            action=action,
-            resource_type="competitor_price",
-            reason=payload.reason,
-            before_summary=before_summary,
-            after_summary=f"{listing.match_status}:{listing.sku_code or '-'}",
         )
-        db.commit()
-        db.refresh(listing)
-        return Envelope(data=CompetitorPriceRead.model_validate(listing))
+        if product is None:
+            raise NotFoundError("Không tìm thấy SKU ACTIVE để liên kết.")
+        listing.product_id = product.id
+        listing.sku_code = product.sku_code
+        listing.product_name = product.name
+        listing.match_status = "MANUALLY_MATCHED"
+        listing.verdict = f"Duyệt thủ công: {payload.reason[:80]}"
+        action = "APPROVE_COMPETITOR_MATCH"
+    else:
+        listing.product_id = None
+        listing.sku_code = None
+        listing.product_name = (listing.raw_title or listing.product_name)[:255]
+        listing.match_status = "REJECTED"
+        listing.verdict = f"Từ chối thủ công: {payload.reason[:80]}"
+        action = "REJECT_COMPETITOR_MATCH"
+
+    record_audit_log(
+        db,
+        actor=current_user.full_name,
+        action=action,
+        resource_type="competitor_price",
+        reason=payload.reason,
+        before_summary=before_summary,
+        after_summary=f"{listing.match_status}:{listing.sku_code or '-'}",
+    )
+    db.commit()
+    db.refresh(listing)
+    return Envelope(data=CompetitorPriceRead.model_validate(listing))

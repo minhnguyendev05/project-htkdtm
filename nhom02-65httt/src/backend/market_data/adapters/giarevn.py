@@ -16,6 +16,7 @@ class GiarevnAstroAdapter(CompetitorSourceAdapter):
     Endpoint/page payloads can change; validate response structure and site terms
     before enabling scheduled collection in a shared environment.
     """
+
     marketplace = "GIAREVN"
     SEARCH_ACTION = "https://giarevn.com/_actions/searchProductByUrl"
 
@@ -29,7 +30,9 @@ class GiarevnAstroAdapter(CompetitorSourceAdapter):
             or parsed_url.password
         ):
             raise ValueError("Chỉ chấp nhận URL sản phẩm HTTPS thuộc giarevn.com.")
-        response = self.session.post(self.SEARCH_ACTION, data={"url": product_url}, timeout=self.timeout)
+        response = self.session.post(
+            self.SEARCH_ACTION, data={"url": product_url}, timeout=self.timeout
+        )
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         # The chart payload is sometimes embedded as data attributes on a canvas.
@@ -45,9 +48,18 @@ class GiarevnAstroAdapter(CompetitorSourceAdapter):
             labels = json.loads(canvas.get("data-labels", "[]"))
         rows = []
         for i, price in enumerate(prices):
-            if price is None: continue
-            rows.append(self.record(marketplace="GIAREVN", category="price_history",
-                product_id=product_url, title=product_url, price_vnd=float(price),
-                observed_at=labels[i] if i < len(labels) else None,
-                url=product_url, confidence=0.55))
+            if price is None:
+                continue
+            rows.append(
+                self.record(
+                    marketplace="GIAREVN",
+                    category="price_history",
+                    product_id=product_url,
+                    title=product_url,
+                    price_vnd=float(price),
+                    observed_at=labels[i] if i < len(labels) else None,
+                    url=product_url,
+                    confidence=0.55,
+                )
+            )
         return pd.DataFrame(rows)

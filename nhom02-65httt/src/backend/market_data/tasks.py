@@ -6,7 +6,6 @@ from pathlib import Path
 from app.db.session import SessionLocal
 from app.worker.celery_app import celery_app
 
-from .load_postgres import crawl_active_products
 from .adapters import (
     DatasetSnapshotAdapter,
     GiarevnAstroAdapter,
@@ -15,6 +14,7 @@ from .adapters import (
     RetailHtmlAdapter,
     TikiOpenApiAdapter,
 )
+from .load_postgres import crawl_active_products
 from .normalize import load_dataset
 from .persistence import persist_competitor_prices
 
@@ -94,9 +94,12 @@ def validate_dataset_task():
     if not csv_path.exists():
         return {"status": "CONFIG_REQUIRED", "message": f"Dataset not found: {csv_path}"}
     df = load_dataset(str(csv_path))
-    return {"status": "OK", "rows_valid": int(len(df)),
-            "marketplaces": sorted(df["marketplace"].unique().tolist()),
-            "observed_at_unique": int(df["observed_at"].nunique())}
+    return {
+        "status": "OK",
+        "rows_valid": int(len(df)),
+        "marketplaces": sorted(df["marketplace"].unique().tolist()),
+        "observed_at_unique": int(df["observed_at"].nunique()),
+    }
 
 
 @celery_app.task(name="market_data.tasks.ingest_dataset_snapshot_task")

@@ -122,21 +122,44 @@ class CrawlerRunRead(ApiModel):
 class CdpCaptureItem(ApiModel):
     """A structured product observation emitted by the Chrome CDP collector."""
 
-    item_id: str | int | None = None
-    shop_id: str | int | None = None
-    sku_id: str | int | None = None
+    item_id: str | None = Field(default=None, max_length=120)
+    shop_id: str | None = Field(default=None, max_length=120)
+    sku_id: str | None = Field(default=None, max_length=120)
     name: str | None = Field(default=None, max_length=500)
     title: str | None = Field(default=None, max_length=500)
-    price_vnd: Decimal | None = Field(default=None, gt=0)
-    original_price_vnd: Decimal | None = Field(default=None, gt=0)
-    price_before_discount_vnd: Decimal | None = Field(default=None, gt=0)
-    sold: int | None = Field(default=None, ge=0)
-    historical_sold: int | None = Field(default=None, ge=0)
-    rating_star: Decimal | None = Field(default=None, ge=0, le=5)
+    price_vnd: Decimal | None = Field(
+        default=None, gt=0, max_digits=15, decimal_places=2
+    )
+    original_price_vnd: Decimal | None = Field(
+        default=None, gt=0, max_digits=15, decimal_places=2
+    )
+    price_before_discount_vnd: Decimal | None = Field(
+        default=None, gt=0, max_digits=15, decimal_places=2
+    )
+    sold: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    historical_sold: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    rating_star: Decimal | None = Field(
+        default=None, ge=0, le=5, max_digits=3, decimal_places=2
+    )
     shop_name: str | None = Field(default=None, max_length=150)
     brand: str | None = Field(default=None, max_length=100)
     url: str | None = Field(default=None, max_length=500)
     captured_at_utc: datetime | None = None
+
+    @field_validator("name", "title", "shop_name", "brand", mode="before")
+    @classmethod
+    def _normalize_capture_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("item_id", "shop_id", "sku_id", mode="before")
+    @classmethod
+    def _normalize_external_ids(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        if not cleaned or len(cleaned) > 120:
+            raise ValueError("Mã sản phẩm phải có từ 1 đến 120 ký tự.")
+        return cleaned
 
     @field_validator("url")
     @classmethod
@@ -178,6 +201,16 @@ class CdpIngestCreate(ApiModel):
     model_config = ConfigDict(extra="forbid")
 
     structured_records: list[CdpCaptureRecord] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def _limit_total_products(self) -> CdpIngestCreate:
+        item_count = sum(
+            len(record.items) if record.items else 1
+            for record in self.structured_records
+        )
+        if item_count > 100:
+            raise ValueError("Mỗi lần nạp CDP tối đa 100 sản phẩm.")
+        return self
 
 
 class CdpIngestRead(ApiModel):

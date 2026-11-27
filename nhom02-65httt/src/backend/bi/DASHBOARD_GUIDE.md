@@ -77,6 +77,7 @@ Database và Pricing thống nhất.
 ## Bộ lọc chung và giới hạn
 
 Dùng date range, category, channel, marketplace, SKU, strategy và status theo
-dataset tương ứng. Không gắn nhãn “90 ngày” nếu dữ liệu chưa đủ 90 ngày. Các
-view dùng `LEFT JOIN` để giữ bản ghi chưa được match/duyệt/đồng bộ; dashboard
-nên hiển thị rõ trạng thái dữ liệu thay vì loại bỏ âm thầm.
+dataset tương ứng. Không gắn nhãn “90 ngày” nếu dữ liệu chưa đủ 90 ngày. View
+đối thủ giữ listing chưa được match; view pricing giữ đề xuất chưa được duyệt
+hoặc đồng bộ. Dashboard nên hiển thị rõ trạng thái dữ liệu thay vì loại bỏ âm
+thầm.

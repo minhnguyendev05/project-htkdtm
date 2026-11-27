@@ -16,9 +16,7 @@ from .adapters.base import CompetitorSourceAdapter
 from .normalize import load_dataset
 from .persistence import persist_competitor_prices
 
-DEFAULT_DATASET = (
-    Path(__file__).resolve().parents[3] / "datasets" / "competitor-prices-vnd.csv"
-)
+DEFAULT_DATASET = Path(__file__).resolve().parents[3] / "datasets" / "competitor-prices-vnd.csv"
 
 COUNT_FIELDS = (
     "rows_received",

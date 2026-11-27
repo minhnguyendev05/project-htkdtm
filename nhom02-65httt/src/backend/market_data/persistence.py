@@ -73,16 +73,16 @@ def _has_fake_sale_warning(row: dict[str, Any]) -> bool:
         and not pd.isna(original_price)
         and Decimal(str(original_price)) > price
     )
-    if discount_percent is not None and not pd.isna(discount_percent):
-        if has_lower_reference_price and Decimal(str(discount_percent)) >= (
-            FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT
-        ):
-            return True
+    if (
+        discount_percent is not None
+        and not pd.isna(discount_percent)
+        and has_lower_reference_price
+        and Decimal(str(discount_percent)) >= FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT
+    ):
+        return True
     if has_lower_reference_price:
         actual_discount = (
-            (Decimal(str(original_price)) - price)
-            / Decimal(str(original_price))
-            * Decimal("100")
+            (Decimal(str(original_price)) - price) / Decimal(str(original_price)) * Decimal("100")
         )
         return actual_discount >= FAKE_SALE_DISCOUNT_THRESHOLD_PERCENT
     return False
@@ -98,9 +98,7 @@ def _candidate_matches(
     product_name_parts = [product.name, product.variant_name]
     if product.model_code and not extract_model(product.name):
         product_name_parts.append(product.model_code)
-    product_name = " ".join(
-        part for part in product_name_parts if part
-    )
+    product_name = " ".join(part for part in product_name_parts if part)
     return match_sku(
         {"sku": product.sku_code, "name": product_name, "brand": product.brand},
         {
@@ -148,8 +146,7 @@ def _match_product(
         tied = [
             match
             for _, match in matches
-            if match["status"] == "MATCHED"
-            and match["score"] == best_match["score"]
+            if match["status"] == "MATCHED" and match["score"] == best_match["score"]
         ]
         if len(tied) == 1:
             return (
@@ -163,15 +160,13 @@ def _match_product(
         return (
             best_product,
             "NEEDS_REVIEW",
-            f"Cần xác minh SKU {best_product.sku_code} "
-            f"(độ tương đồng {best_match['score']:.2f}).",
+            f"Cần xác minh SKU {best_product.sku_code} (độ tương đồng {best_match['score']:.2f}).",
         )
 
     return (
         None,
         "REJECTED",
-        f"Ứng viên tốt nhất không đạt ngưỡng khớp "
-        f"(độ tương đồng {best_match['score']:.2f}).",
+        f"Ứng viên tốt nhất không đạt ngưỡng khớp (độ tương đồng {best_match['score']:.2f}).",
     )
 
 
@@ -198,9 +193,7 @@ def persist_competitor_prices(
     normalized = normalize_dataframe(records).sort_values(
         ["marketplace", "product_id", "observed_at"]
     )
-    products = list(
-        db.scalars(select(Product).where(Product.status == "ACTIVE")).all()
-    )
+    products = list(db.scalars(select(Product).where(Product.status == "ACTIVE")).all())
     counts = {
         "rows_received": int(len(normalized)),
         "rows_created": 0,
@@ -232,9 +225,7 @@ def persist_competitor_prices(
                     listings_by_key[key] = listing
 
     incoming_dates: dict[tuple[str, str], set[date]] = {}
-    for row in normalized[["marketplace", "product_id", "observed_at"]].itertuples(
-        index=False
-    ):
+    for row in normalized[["marketplace", "product_id", "observed_at"]].itertuples(index=False):
         key = (row.marketplace, row.product_id)
         incoming_dates.setdefault(key, set()).add(_utc_datetime(row.observed_at).date())
 
@@ -259,17 +250,12 @@ def persist_competitor_prices(
             history_by_key[(history.competitor_price_id, history.recorded_date)] = history
 
     latest_observed_by_key = {
-        key: _utc_datetime(listing.observed_at)
-        for key, listing in listings_by_key.items()
+        key: _utc_datetime(listing.observed_at) for key, listing in listings_by_key.items()
     }
 
     for row in normalized.to_dict(orient="records"):
-        marketplace = _bounded_text(
-            row["marketplace"], "marketplace_code", 32, required=True
-        )
-        external_id = _bounded_text(
-            row["product_id"], "external_item_id", 120, required=True
-        )
+        marketplace = _bounded_text(row["marketplace"], "marketplace_code", 32, required=True)
+        external_id = _bounded_text(row["product_id"], "external_item_id", 120, required=True)
         title = _bounded_text(row["title"], "raw_title", 500, required=True)
         product, match_status, verdict = _match_product(
             products,

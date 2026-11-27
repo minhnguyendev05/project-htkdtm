@@ -18,19 +18,19 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.drop_constraint(
-        op.f("ck_competitor_prices_match_status_valid"),
-        "competitor_prices",
-        type_="check",
-    )
-    op.create_check_constraint(
-        op.f("ck_competitor_prices_match_status_valid"),
-        "competitor_prices",
-        "match_status IN ('AUTO_MATCHED', 'MANUALLY_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
-    )
+    with op.batch_alter_table("competitor_prices") as batch_op:
+        batch_op.drop_constraint(
+            op.f("ck_competitor_prices_match_status_valid"),
+            type_="check",
+        )
+        batch_op.create_check_constraint(
+            op.f("ck_competitor_prices_match_status_valid"),
+            "match_status IN ('AUTO_MATCHED', 'MANUALLY_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
+        )
+    op.execute("DROP VIEW IF EXISTS vw_bi_sales_profitability")
     op.execute(
         """
-        CREATE OR REPLACE VIEW vw_bi_sales_profitability AS
+        CREATE VIEW vw_bi_sales_profitability AS
         SELECT
             sales.order_date,
             product.sku_code,
@@ -47,25 +47,25 @@ def upgrade() -> None:
             sales.gross_revenue - (sales.quantity * sales.unit_cost) AS gross_profit,
             sales.net_profit,
             100.0 * sales.net_profit / NULLIF(sales.gross_revenue, 0) AS net_margin_pct,
-            recommendation.floor_price AS pmin
+            (
+                SELECT rec.floor_price
+                FROM price_recommendations AS rec
+                WHERE rec.product_id = sales.product_id
+                  AND rec.channel_id = sales.channel_id
+                  AND DATE(rec.created_at) <= sales.order_date
+                ORDER BY rec.created_at DESC, rec.id DESC
+                LIMIT 1
+            ) AS pmin
         FROM sales_records AS sales
         JOIN products AS product ON product.id = sales.product_id
         JOIN categories AS category ON category.id = product.category_id
         JOIN sales_channels AS channel ON channel.id = sales.channel_id
-        LEFT JOIN LATERAL (
-            SELECT rec.floor_price
-            FROM price_recommendations AS rec
-            WHERE rec.product_id = sales.product_id
-              AND rec.channel_id = sales.channel_id
-              AND rec.created_at < sales.order_date + INTERVAL '1 day'
-            ORDER BY rec.created_at DESC, rec.id DESC
-            LIMIT 1
-        ) AS recommendation ON TRUE
         """
     )
+    op.execute("DROP VIEW IF EXISTS vw_bi_competitor_price_history")
     op.execute(
         """
-        CREATE OR REPLACE VIEW vw_bi_competitor_price_history AS
+        CREATE VIEW vw_bi_competitor_price_history AS
         SELECT
             history.recorded_date,
             listing.id AS competitor_price_id,
@@ -99,9 +99,10 @@ def upgrade() -> None:
         LEFT JOIN categories AS category ON category.id = product.category_id
         """
     )
+    op.execute("DROP VIEW IF EXISTS vw_bi_pricing_strategy_performance")
     op.execute(
         """
-        CREATE OR REPLACE VIEW vw_bi_pricing_strategy_performance AS
+        CREATE VIEW vw_bi_pricing_strategy_performance AS
         SELECT
             recommendation.id AS recommendation_id,
             recommendation.created_at,
@@ -120,31 +121,53 @@ def upgrade() -> None:
             recommendation.expected_margin,
             recommendation.predicted_demand,
             recommendation.status AS recommendation_status,
-            approval.decision AS latest_approval_decision,
-            approval.decided_at AS latest_approval_at,
-            sync.status AS latest_sync_status,
-            sync.previous_price AS synced_previous_price,
-            sync.requested_price AS synced_requested_price,
-            sync.updated_at AS latest_sync_at
+            (
+                SELECT approval.decision
+                FROM price_approvals AS approval
+                WHERE approval.recommendation_id = recommendation.id
+                ORDER BY approval.decided_at DESC, approval.id DESC
+                LIMIT 1
+            ) AS latest_approval_decision,
+            (
+                SELECT approval.decided_at
+                FROM price_approvals AS approval
+                WHERE approval.recommendation_id = recommendation.id
+                ORDER BY approval.decided_at DESC, approval.id DESC
+                LIMIT 1
+            ) AS latest_approval_at,
+            (
+                SELECT sync.status
+                FROM price_sync_logs AS sync
+                WHERE sync.recommendation_id = recommendation.id
+                ORDER BY sync.updated_at DESC, sync.id DESC
+                LIMIT 1
+            ) AS latest_sync_status,
+            (
+                SELECT sync.previous_price
+                FROM price_sync_logs AS sync
+                WHERE sync.recommendation_id = recommendation.id
+                ORDER BY sync.updated_at DESC, sync.id DESC
+                LIMIT 1
+            ) AS synced_previous_price,
+            (
+                SELECT sync.requested_price
+                FROM price_sync_logs AS sync
+                WHERE sync.recommendation_id = recommendation.id
+                ORDER BY sync.updated_at DESC, sync.id DESC
+                LIMIT 1
+            ) AS synced_requested_price,
+            (
+                SELECT sync.updated_at
+                FROM price_sync_logs AS sync
+                WHERE sync.recommendation_id = recommendation.id
+                ORDER BY sync.updated_at DESC, sync.id DESC
+                LIMIT 1
+            ) AS latest_sync_at
         FROM price_recommendations AS recommendation
         JOIN products AS product ON product.id = recommendation.product_id
         JOIN categories AS category ON category.id = product.category_id
         JOIN sales_channels AS channel ON channel.id = recommendation.channel_id
         LEFT JOIN pricing_rules AS rule ON rule.id = recommendation.rule_id
-        LEFT JOIN LATERAL (
-            SELECT decision, decided_at
-            FROM price_approvals
-            WHERE recommendation_id = recommendation.id
-            ORDER BY decided_at DESC, id DESC
-            LIMIT 1
-        ) AS approval ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT status, previous_price, requested_price, updated_at
-            FROM price_sync_logs
-            WHERE recommendation_id = recommendation.id
-            ORDER BY updated_at DESC, id DESC
-            LIMIT 1
-        ) AS sync ON TRUE
         """
     )
 
@@ -153,13 +176,19 @@ def downgrade() -> None:
     op.execute("DROP VIEW IF EXISTS vw_bi_pricing_strategy_performance")
     op.execute("DROP VIEW IF EXISTS vw_bi_competitor_price_history")
     op.execute("DROP VIEW IF EXISTS vw_bi_sales_profitability")
-    op.drop_constraint(
-        op.f("ck_competitor_prices_match_status_valid"),
-        "competitor_prices",
-        type_="check",
+    op.execute(
+        """
+        UPDATE competitor_prices
+        SET match_status = 'AUTO_MATCHED'
+        WHERE match_status = 'MANUALLY_MATCHED'
+        """
     )
-    op.create_check_constraint(
-        op.f("ck_competitor_prices_match_status_valid"),
-        "competitor_prices",
-        "match_status IN ('AUTO_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
-    )
+    with op.batch_alter_table("competitor_prices") as batch_op:
+        batch_op.drop_constraint(
+            op.f("ck_competitor_prices_match_status_valid"),
+            type_="check",
+        )
+        batch_op.create_check_constraint(
+            op.f("ck_competitor_prices_match_status_valid"),
+            "match_status IN ('AUTO_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
+        )

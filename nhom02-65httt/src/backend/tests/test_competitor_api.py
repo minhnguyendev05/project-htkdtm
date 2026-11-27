@@ -7,9 +7,9 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.core.rbac import Role
+from app.models.audit_log import AuditLog
 from app.models.erp import Category, Product
 from app.models.market import CompetitorPrice, CompetitorPriceHistory
-from app.models.audit_log import AuditLog
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -175,14 +175,20 @@ def test_cdp_ingest_normalizes_and_persists_structured_capture(
                     "originalPriceVnd": 2_000_000,
                     "shopName": "Shop Demo",
                     "capturedAtUtc": "2026-11-27T12:00:00Z",
-                }
+                },
+                {
+                    "platform": "tiktok_shop",
+                    "recordType": "ssr",
+                    "itemId": "unpriced-item",
+                    "name": "Unpriced product",
+                },
             ]
         },
     )
 
     assert response.status_code == 201
     assert response.json()["data"]["rowsCreated"] == 1
-    assert response.json()["data"]["rowsSkipped"] == 0
+    assert response.json()["data"]["rowsSkipped"] == 1
     listing = db_session.scalar(select(CompetitorPrice))
     assert listing is not None
     assert listing.source_type == "API"
@@ -190,6 +196,32 @@ def test_cdp_ingest_normalizes_and_persists_structured_capture(
     assert listing.external_item_id == "456"
     assert listing.fake_sale_warning is True
     assert listing.source_url == "https://shopee.vn/product/123/456"
+
+
+def test_cdp_ingest_rejects_untrusted_marketplace_url(
+    client: TestClient,
+    make_user,
+    auth_headers,
+) -> None:
+    operator = make_user("cdp-url-operator@erp.demo", role=Role.PRICING_ANALYST)
+
+    response = client.post(
+        "/api/v1/crawler/ingest-cdp",
+        headers=auth_headers(operator),
+        json={
+            "structuredRecords": [
+                {
+                    "platform": "shopee",
+                    "itemId": "456",
+                    "name": "Product",
+                    "priceVnd": 100_000,
+                    "url": "https://example.com/product/456",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_review_queue_approves_match_and_audits_decision(
@@ -242,3 +274,45 @@ def test_review_queue_approves_match_and_audits_decision(
     )
     assert event is not None
     assert event.reason == "Model and brand verified"
+
+
+def test_review_queue_rejects_match_and_is_not_repeatable(
+    client: TestClient,
+    db_session: Session,
+    make_user,
+    auth_headers,
+) -> None:
+    listing = CompetitorPrice(
+        product_name="Suggested ERP name",
+        competitor_name="Shop",
+        marketplace_code="TIKI",
+        source_type="API",
+        source_name="Tiki API",
+        external_item_id="reject-item",
+        raw_title="Observed item title",
+        listed_price=Decimal("90000"),
+        confidence=Decimal("0.70"),
+        match_status="NEEDS_REVIEW",
+        observed_at=datetime(2026, 11, 27, tzinfo=UTC),
+    )
+    db_session.add(listing)
+    db_session.commit()
+    operator = make_user("match-reject-operator@erp.demo", role=Role.PRICING_ANALYST)
+    endpoint = f"/api/v1/competitor-prices/{listing.id}/review"
+    headers = auth_headers(operator)
+
+    response = client.post(
+        endpoint,
+        headers=headers,
+        json={"decision": "REJECT", "reason": "Brand and model do not match"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["matchStatus"] == "REJECTED"
+    assert response.json()["data"]["productName"] == "Observed item title"
+    repeated = client.post(
+        endpoint,
+        headers=headers,
+        json={"decision": "REJECT", "reason": "Repeated decision"},
+    )
+    assert repeated.status_code == 409
