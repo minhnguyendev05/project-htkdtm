@@ -13,3 +13,4 @@ ignore = ["B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/crawler/chrome_cdp_collector.py" = ["E501", "SIM105", "UP038"]
+"tests/test_market_data.py" = ["I001", "E501"]
