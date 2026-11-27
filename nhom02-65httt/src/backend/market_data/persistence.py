@@ -234,9 +234,7 @@ def persist_competitor_prices(
             listing.source_url = source_url
             listing.external_item_id = external_id
             listing.raw_title = title
-            listing.extracted_model_code = match_sku(
-                {"name": title}, {"title": title}
-            )["competitor_model"]
+            listing.extracted_model_code = extract_model(title) or None
             listing.listed_price = listed_price
             listing.effective_price = listed_price
             listing.sold_count = _optional_int(row.get("sold"))

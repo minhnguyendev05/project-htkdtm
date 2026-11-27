@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import json
 from urllib.parse import urlparse
+
 import pandas as pd
 from bs4 import BeautifulSoup
+
 from .base import CompetitorSourceAdapter
 
 ALLOWED_RETAIL_DOMAINS = {"websosanh.vn", "www.websosanh.vn", "cellphones.com.vn", "www.cellphones.com.vn", "memoryzone.com.vn", "www.memoryzone.com.vn"}
@@ -11,10 +14,20 @@ class RetailHtmlAdapter(CompetitorSourceAdapter):
     marketplace = "RETAIL_WEB"
 
     def fetch(self, url: str, **kwargs) -> pd.DataFrame:
-        host = (urlparse(url).hostname or "").lower()
-        if host not in ALLOWED_RETAIL_DOMAINS:
+        parsed_url = urlparse(url)
+        host = (parsed_url.hostname or "").lower()
+        if (
+            parsed_url.scheme != "https"
+            or host not in ALLOWED_RETAIL_DOMAINS
+            or parsed_url.port not in (None, 443)
+            or parsed_url.username
+            or parsed_url.password
+        ):
             raise ValueError(f"Domain chưa được cho phép: {host}")
-        html = self.request(url).text
+        response = self.request(url, allow_redirects=False)
+        if response.is_redirect:
+            raise ValueError("Trang bán lẻ chuyển hướng; hãy cung cấp URL trang sản phẩm chính tắc.")
+        html = response.text
         soup = BeautifulSoup(html, "html.parser")
         rows = []
         for node in soup.find_all("script", attrs={"type": "application/ld+json"}):

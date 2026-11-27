@@ -41,22 +41,24 @@ cd nhom02-65httt\src\backend
 
 Bộ adapter chuẩn hóa đang nằm trong `market_data/adapters/`; task
 `market_data.tasks.crawl_and_store_task` được đăng ký trên Celery chung
-`app.worker.celery_app`. Task lưu listing và lịch sử hằng ngày vào hai bảng
-ORM chuẩn `competitor_prices` và `competitor_price_history`, không dùng schema
-crawler riêng.
+`app.worker.celery_app`. API `POST /api/v1/crawler/run` yêu cầu quyền
+`COMPETITOR_WRITE`; API `GET /api/v1/competitor-prices` và
+`GET /api/v1/competitor-prices/{id}/history` yêu cầu `COMPETITOR_READ`. Task lưu
+listing và lịch sử hằng ngày vào hai bảng ORM chuẩn `competitor_prices` và
+`competitor_price_history`, không dùng schema crawler riêng.
 
 Các adapter hiện có: `tiki`, `lazada`, `retail_html`, `giarevn`,
-`price_history` và `dataset_snapshot`. Ví dụ gọi task trong môi trường backend:
+`price_history` và `dataset_snapshot`. Ví dụ gọi API:
 
-```python
-from market_data.tasks import crawl_and_store_task
+```http
+POST /api/v1/crawler/run
+Authorization: Bearer <access-token>
+Content-Type: application/json
 
-crawl_and_store_task.delay(
-    "tiki",
-    fetch_kwargs={"keyword": "AirPods", "limit": 5},
-)
+{"adapterName":"tiki","keyword":"AirPods","limit":5,"skuCode":"ERP-AIRPODS-4"}
 ```
 
 Schema được tạo/cập nhật bằng Alembic chuẩn của backend. Các collector trong
-`app/crawler/` vẫn là công cụ PoC riêng; muốn ghi dữ liệu từ chúng vào database
-thì cần chuyển output qua adapter/task chuẩn hóa ở trên.
+`app/crawler/` vẫn là công cụ PoC riêng; output của chúng chưa tự động ghi vào
+database. URL gửi tới các adapter trang bán lẻ phải dùng HTTPS và đúng domain
+được cho phép; chuyển hướng bị từ chối.

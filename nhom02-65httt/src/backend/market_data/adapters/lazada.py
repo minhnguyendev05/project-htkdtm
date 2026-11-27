@@ -1,17 +1,32 @@
 from __future__ import annotations
+
 import json
-import re
+from urllib.parse import urlparse
+
 import pandas as pd
 from bs4 import BeautifulSoup
+
 from .base import CompetitorSourceAdapter
+
 
 class LazadaDirectPdpAdapter(CompetitorSourceAdapter):
     marketplace = "LAZADA"
 
     def fetch(self, url: str, **kwargs) -> pd.DataFrame:
-        if "lazada." not in (url or "").lower():
+        parsed_url = urlparse(url or "")
+        host = (parsed_url.hostname or "").lower()
+        if (
+            parsed_url.scheme != "https"
+            or not (host == "lazada.vn" or host.endswith(".lazada.vn"))
+            or parsed_url.port not in (None, 443)
+            or parsed_url.username
+            or parsed_url.password
+        ):
             raise ValueError("Chỉ chấp nhận URL PDP thuộc Lazada")
-        html = self.request(url).text
+        response = self.request(url, allow_redirects=False)
+        if response.is_redirect:
+            raise ValueError("URL Lazada chuyển hướng; hãy cung cấp URL PDP chính tắc.")
+        html = response.text
         soup = BeautifulSoup(html, "html.parser")
         rows = []
         # Prefer structured JSON-LD Product/Offer; page-specific embedded state is volatile.

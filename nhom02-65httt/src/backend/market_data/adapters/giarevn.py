@@ -1,9 +1,14 @@
 from __future__ import annotations
+
 import json
 import re
+from urllib.parse import urlparse
+
 import pandas as pd
 from bs4 import BeautifulSoup
+
 from .base import CompetitorSourceAdapter
+
 
 class GiarevnAstroAdapter(CompetitorSourceAdapter):
     """Proof-of-concept parser for Giarevn product price-history pages.
@@ -15,6 +20,15 @@ class GiarevnAstroAdapter(CompetitorSourceAdapter):
     SEARCH_ACTION = "https://giarevn.com/_actions/searchProductByUrl"
 
     def fetch(self, product_url: str, **kwargs) -> pd.DataFrame:
+        parsed_url = urlparse(product_url)
+        if (
+            parsed_url.scheme != "https"
+            or parsed_url.hostname != "giarevn.com"
+            or parsed_url.port not in (None, 443)
+            or parsed_url.username
+            or parsed_url.password
+        ):
+            raise ValueError("Chỉ chấp nhận URL sản phẩm HTTPS thuộc giarevn.com.")
         response = self.session.post(self.SEARCH_ACTION, data={"url": product_url}, timeout=self.timeout)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")

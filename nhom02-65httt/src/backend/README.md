@@ -104,6 +104,12 @@ Mọi endpoint dưới prefix `/api/v1` tuân thủ thống nhất:
   - `GET /audit-logs` (`AUDIT_READ`)
   - `GET /channels`, `GET /channel-fees`, `POST /channels/{channel_id}/test-connection`
   - `GET /dashboard` (`BI_READ`)
+  - `GET /competitor-prices` (`COMPETITOR_READ`), lọc theo SKU, marketplace và trạng thái khớp
+  - `GET /competitor-prices/{competitor_price_id}/history` (`COMPETITOR_READ`)
+  - `POST /crawler/run` (`COMPETITOR_WRITE`), enqueue adapter được cho phép vào Celery
   - `GET /executions`, `POST /executions`, `POST /executions/from-recommendation/{recommendation_id}`, `POST /executions/{execution_id}/retry`, `POST /executions/{execution_id}/cancel`
-- **Celery task:** `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
-- **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng đã tích hợp sẵn; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`.
+
+- **Celery tasks:**
+  - `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
+  - `market_data.tasks.crawl_and_store_task` thu thập, chuẩn hóa và ghi `competitor_prices` cùng `competitor_price_history`.
+- **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`. Dùng `/api/v1/crawler/run` để gọi adapter tích hợp trong `market_data/`.
