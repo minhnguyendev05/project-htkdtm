@@ -15,12 +15,17 @@ from app.core.rbac import Permission
 from app.db.session import get_db
 from app.models.erp import Product
 from app.models.market import SalesChannel
-from app.models.pricing import PriceSyncLog
+from app.models.pricing import PriceRecommendation, PriceSyncLog
 from app.models.user import User
 from app.schemas.common import Envelope, PageMeta
 from app.schemas.execution import ExecutionCreate, ExecutionRead
 from app.services.audit import record_audit_log
-from app.services.execution import MAX_ATTEMPTS, execute_sync_log
+from app.services.execution import (
+    MAX_ATTEMPTS,
+    enqueue_approved_recommendation_sync,
+    execute_sync_log,
+)
+from app.worker.tasks import execute_price_sync_task
 
 router = APIRouter(prefix="/executions", tags=["executions"])
 
@@ -208,4 +213,42 @@ def cancel_execution(
     )
     db.commit()
     db.refresh(sync_log)
+    return Envelope(data=ExecutionRead.model_validate(sync_log))
+
+
+@router.post(
+    "/from-recommendation/{recommendation_id}",
+    response_model=Envelope[ExecutionRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def execute_approved_recommendation(
+    recommendation_id: UUID,
+    response: Response,
+    execute_immediately: bool = Query(True, alias="executeImmediately"),
+    dispatch_celery: bool = Query(False, alias="dispatchCelery"),
+    current_user: User = Depends(
+        require_any_permission(Permission.PRICING_APPROVE, Permission.EXECUTION_RETRY)
+    ),
+    db: Session = Depends(get_db),
+) -> Envelope[ExecutionRead]:
+    """Trigger marketplace sync from an APPROVED price recommendation."""
+    recommendation = db.get(PriceRecommendation, recommendation_id)
+    if recommendation is None:
+        raise NotFoundError("Không tìm thấy đề xuất giá.")
+
+    sync_log, created = enqueue_approved_recommendation_sync(
+        db,
+        recommendation,
+        actor=current_user.full_name,
+        execute_immediately=execute_immediately,
+    )
+    if not created:
+        response.status_code = status.HTTP_200_OK
+        return Envelope(data=ExecutionRead.model_validate(sync_log))
+
+    db.commit()
+    db.refresh(sync_log)
+    if dispatch_celery and not execute_immediately:
+        execute_price_sync_task.delay(str(sync_log.id))
+
     return Envelope(data=ExecutionRead.model_validate(sync_log))
