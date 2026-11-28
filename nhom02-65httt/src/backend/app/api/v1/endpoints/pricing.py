@@ -16,14 +16,24 @@ from app.models.pricing import ModelRun
 from app.models.user import User
 from app.schemas.common import Envelope, PageMeta
 from app.schemas.pricing import (
+    ClosedLoopSummaryRead,
     ModelRunRead,
+    ModelRunSummaryRead,
     ModelTrainRequest,
     PricingPreviewRequest,
     PricingPreviewResponse,
     PricingRunRequest,
     PricingRunResponse,
+    PricingSimulateRequest,
+    PricingSimulateResponse,
 )
-from app.services.pricing import execute_pricing_run, preview_pricing
+from app.services.pricing import (
+    evaluate_closed_loop,
+    execute_pricing_run,
+    preview_pricing,
+    simulate_pricing,
+    summarize_model_runs,
+)
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
@@ -100,3 +110,32 @@ def train_model_runs(
         actor=current_user.full_name,
     )
     return Envelope(data=[ModelRunRead.model_validate(row) for row in rows])
+
+
+@router.get("/model-runs/summary", response_model=Envelope[ModelRunSummaryRead])
+def get_model_runs_summary(
+    _: User = Depends(require_permission(Permission.PRICING_READ)),
+    db: Session = Depends(get_db),
+) -> Envelope[ModelRunSummaryRead]:
+    """Compare latest LinearRegression vs XGBoost runs and highlight the best model."""
+    return Envelope(data=summarize_model_runs(db))
+
+
+@router.post("/simulate", response_model=Envelope[PricingSimulateResponse])
+def simulate_what_if_pricing(
+    payload: PricingSimulateRequest,
+    _: User = Depends(require_any_permission(Permission.PRICING_READ, Permission.PRICING_RUN)),
+    db: Session = Depends(get_db),
+) -> Envelope[PricingSimulateResponse]:
+    """Simulate demand, revenue, and profit across candidate price points (Digital Twin)."""
+    return Envelope(data=simulate_pricing(db, payload))
+
+
+@router.get("/evaluations", response_model=Envelope[ClosedLoopSummaryRead])
+def get_closed_loop_evaluations(
+    window_days: int = Query(14, ge=1, le=90, alias="windowDays"),
+    _: User = Depends(require_permission(Permission.PRICING_READ)),
+    db: Session = Depends(get_db),
+) -> Envelope[ClosedLoopSummaryRead]:
+    """Evaluate predicted demand vs realized sales after recommendation execution."""
+    return Envelope(data=evaluate_closed_loop(db, window_days=window_days))

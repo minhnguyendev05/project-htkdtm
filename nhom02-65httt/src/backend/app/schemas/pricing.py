@@ -280,3 +280,72 @@ class ModelRunRead(ApiModel):
     rmse: Decimal
     artifact_path: str | None
     trained_at: datetime
+
+
+class ModelRunSummaryRead(ApiModel):
+    """Comparison summary between latest LinearRegression and XGBoost runs."""
+
+    best_model_name: str | None = None
+    best_algorithm_type: str | None = None
+    rmse_improvement_pct: Decimal | None = None
+    latest_runs: list[ModelRunRead] = Field(default_factory=list)
+
+
+class PricingSimulateRequest(ApiModel):
+    """What-if Digital Twin simulation request for a SKU on a sales channel."""
+
+    sku_id: UUID
+    channel_id: UUID
+    target_margin: Decimal = Field(default=Decimal("0.1800"), gt=Decimal("0"), lt=Decimal("1"))
+    elasticity: float = Field(default=-1.2, lt=0.0, ge=-5.0)
+    candidate_prices: list[Decimal] | None = Field(default=None, max_length=25)
+
+
+class SimulationPointRead(ApiModel):
+    """Single simulated price point on the what-if curve."""
+
+    price: Decimal
+    above_floor: bool
+    predicted_demand: Decimal
+    expected_revenue: Decimal
+    expected_profit: Decimal
+    expected_margin: Decimal
+    competitor_gap_pct: Decimal | None = None
+
+
+class PricingSimulateResponse(ApiModel):
+    """Digital Twin what-if curve response."""
+
+    sku_id: UUID
+    sku_code: str
+    product_name: str
+    channel_id: UUID
+    channel_name: str
+    current_price: Decimal
+    floor_price: Decimal | None
+    competitor_median: Decimal | None
+    optimal_price: Decimal | None
+    points: list[SimulationPointRead]
+
+
+class ClosedLoopItemRead(ApiModel):
+    """Single recommendation's predicted vs realized daily demand."""
+
+    recommendation_id: UUID
+    sku_code: str
+    channel_name: str
+    recommended_price: Decimal
+    predicted_demand: Decimal
+    actual_avg_daily_demand: Decimal
+    absolute_error: Decimal
+    percentage_error: Decimal
+    sales_days_observed: int
+
+
+class ClosedLoopSummaryRead(ApiModel):
+    """Aggregated closed-loop evaluation across executed/approved recommendations."""
+
+    evaluated_count: int
+    mae: Decimal
+    within_tolerance_count: int
+    items: list[ClosedLoopItemRead] = Field(default_factory=list)

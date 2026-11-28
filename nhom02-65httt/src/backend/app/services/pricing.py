@@ -10,7 +10,14 @@ from uuid import UUID
 
 from pricing_engine import ENGINE_VERSION, PricingRequest
 from pricing_engine import run_pricing as run_engine
+from pricing_engine.evaluation.closed_loop import (
+    evaluate as evaluate_closed_loop_point,
+)
+from pricing_engine.evaluation.closed_loop import (
+    summarize_closed_loop,
+)
 from pricing_engine.schemas.output_schema import PricingResult
+from pricing_engine.simulation.digital_twin import simulate_price_curve
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,17 +26,24 @@ from app.db.base import utc_now
 from app.ml.demand_baseline import forecast_demand_ml
 from app.models.erp import Category, CostComponent, Inventory, Product, SupplierProduct
 from app.models.market import ChannelProduct, CompetitorPrice, SalesChannel, SalesRecord
-from app.models.pricing import PriceApproval, PriceRecommendation, PricingRule
+from app.models.pricing import ModelRun, PriceApproval, PriceRecommendation, PricingRule
 from app.models.user import User
 from app.schemas.pricing import (
+    ClosedLoopItemRead,
+    ClosedLoopSummaryRead,
+    ModelRunRead,
+    ModelRunSummaryRead,
     PriceApprovalRead,
     PricingPreviewItemRead,
     PricingPreviewRequest,
     PricingPreviewResponse,
     PricingRunRequest,
     PricingRunResponse,
+    PricingSimulateRequest,
+    PricingSimulateResponse,
     RecommendationDecisionRequest,
     RecommendationRead,
+    SimulationPointRead,
 )
 from app.services.audit import record_audit_log
 
@@ -960,3 +974,166 @@ def decide_recommendation(
     db.commit()
     db.refresh(recommendation)
     return serialize_recommendation(db, recommendation)
+
+
+def simulate_pricing(db: Session, payload: PricingSimulateRequest) -> PricingSimulateResponse:
+    """Run Digital Twin what-if simulation across candidate prices for a SKU & channel."""
+    product = db.get(Product, payload.sku_id)
+    if product is None:
+        raise NotFoundError("Không tìm thấy sản phẩm.")
+    channel = db.get(SalesChannel, payload.channel_id)
+    if channel is None:
+        raise NotFoundError("Không tìm thấy kênh bán.")
+
+    now = utc_now()
+    unit_cost = _resolve_unit_cost(db, product)
+    current_price = _resolve_current_price(db, product, channel)
+    comp = _collect_competitor_signal(db, product, channel, now=now)
+    sales_records, _, velocity, _ = _collect_sales_signal(db, product, channel)
+
+    base_demand = velocity
+    if sales_records:
+        ml_forecast = forecast_demand_ml(sales_records, target_price=float(current_price))
+        if ml_forecast is not None:
+            base_demand = ml_forecast[0]
+
+    denom = Decimal("1") - Decimal(channel.fee_rate) - payload.target_margin
+    floor_price = _money(unit_cost / denom) if denom > 0 and unit_cost > 0 else None
+
+    raw_points = simulate_price_curve(
+        current_price=float(current_price),
+        unit_cost=float(unit_cost),
+        channel_fee_rate=float(channel.fee_rate),
+        floor_price=float(floor_price) if floor_price is not None else None,
+        base_demand=float(base_demand),
+        elasticity=payload.elasticity,
+        candidate_prices=(
+            [float(p) for p in payload.candidate_prices]
+            if payload.candidate_prices is not None
+            else None
+        ),
+        competitor_price=float(comp["median"]) if comp["median"] is not None else None,
+    )
+
+    points = [
+        SimulationPointRead(
+            price=_money(pt["price"]),  # type: ignore[arg-type]
+            above_floor=bool(pt["above_floor"]),
+            predicted_demand=_money(pt["predicted_demand"]),  # type: ignore[arg-type]
+            expected_revenue=_money(pt["expected_revenue"]),  # type: ignore[arg-type]
+            expected_profit=_money(pt["expected_profit"]),  # type: ignore[arg-type]
+            expected_margin=_rate(pt["expected_margin"]),  # type: ignore[arg-type]
+            competitor_gap_pct=(
+                _rate(pt["competitor_gap_pct"])  # type: ignore[arg-type]
+                if pt["competitor_gap_pct"] is not None
+                else None
+            ),
+        )
+        for pt in raw_points
+    ]
+
+    feasible = [pt for pt in points if pt.above_floor]
+    optimal = max(feasible, key=lambda pt: pt.expected_profit) if feasible else None
+
+    return PricingSimulateResponse(
+        sku_id=product.id,
+        sku_code=product.sku_code,
+        product_name=product.name,
+        channel_id=channel.id,
+        channel_name=channel.name,
+        current_price=current_price,
+        floor_price=floor_price,
+        competitor_median=comp["median"],
+        optimal_price=optimal.price if optimal is not None else None,
+        points=points,
+    )
+
+
+def evaluate_closed_loop(
+    db: Session,
+    *,
+    window_days: int = 14,
+) -> ClosedLoopSummaryRead:
+    """Compare predicted demand on executed/approved recommendations with realized SalesRecord."""
+    recs = db.execute(
+        select(PriceRecommendation, Product, SalesChannel)
+        .join(Product, PriceRecommendation.product_id == Product.id)
+        .join(SalesChannel, PriceRecommendation.channel_id == SalesChannel.id)
+        .where(
+            PriceRecommendation.status.in_(["APPROVED", "EXECUTION_QUEUED", "EXECUTED"]),
+            PriceRecommendation.predicted_demand.is_not(None),
+        )
+        .order_by(PriceRecommendation.created_at.desc())
+        .limit(100)
+    ).all()
+
+    items: list[ClosedLoopItemRead] = []
+    metric_inputs: list[dict[str, float]] = []
+
+    for rec, product, channel in recs:
+        start_date = _as_utc(rec.created_at).date()
+        end_date = start_date + timedelta(days=window_days)
+        sales_rows = db.scalars(
+            select(SalesRecord).where(
+                SalesRecord.product_id == rec.product_id,
+                SalesRecord.channel_id == rec.channel_id,
+                SalesRecord.order_date >= start_date,
+                SalesRecord.order_date <= end_date,
+            )
+        ).all()
+        if not sales_rows:
+            continue
+
+        actual_avg = sum(float(max(0, r.quantity)) for r in sales_rows) / len(sales_rows)
+        predicted = float(rec.predicted_demand or 0)
+        err = evaluate_closed_loop_point(predicted, actual_avg)
+        metric_inputs.append(err)
+        items.append(
+            ClosedLoopItemRead(
+                recommendation_id=rec.id,
+                sku_code=product.sku_code,
+                channel_name=channel.name,
+                recommended_price=_money(rec.recommended_price),
+                predicted_demand=_money(predicted),
+                actual_avg_daily_demand=_money(actual_avg),
+                absolute_error=_rate(err["error"]),
+                percentage_error=_rate(err["percentage_error"]),
+                sales_days_observed=len(sales_rows),
+            )
+        )
+
+    summary = summarize_closed_loop(metric_inputs)
+    return ClosedLoopSummaryRead(
+        evaluated_count=int(summary["evaluated_count"]),
+        mae=_rate(summary["mae"]),
+        within_tolerance_count=int(summary["within_tolerance_count"]),
+        items=items,
+    )
+
+
+def summarize_model_runs(db: Session) -> ModelRunSummaryRead:
+    """Summarize latest ModelRun per algorithm and identify the best performing model."""
+    rows = db.scalars(select(ModelRun).order_by(ModelRun.trained_at.desc()).limit(50)).all()
+    if not rows:
+        return ModelRunSummaryRead()
+
+    latest_by_algo: dict[str, ModelRun] = {}
+    for row in rows:
+        if row.algorithm_type not in latest_by_algo:
+            latest_by_algo[row.algorithm_type] = row
+
+    latest_list = list(latest_by_algo.values())
+    best = min(latest_list, key=lambda r: (Decimal(r.rmse), Decimal(r.mae)))
+
+    improvement_pct: Decimal | None = None
+    if len(latest_list) >= 2:
+        worst_rmse = max(Decimal(r.rmse) for r in latest_list)
+        if worst_rmse > 0:
+            improvement_pct = _rate((worst_rmse - Decimal(best.rmse)) / worst_rmse)
+
+    return ModelRunSummaryRead(
+        best_model_name=best.model_name,
+        best_algorithm_type=best.algorithm_type,
+        rmse_improvement_pct=improvement_pct,
+        latest_runs=[ModelRunRead.model_validate(r) for r in latest_list],
+    )
