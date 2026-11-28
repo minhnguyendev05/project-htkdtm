@@ -16,7 +16,18 @@ from .adapters.base import CompetitorSourceAdapter
 from .normalize import load_dataset
 from .persistence import persist_competitor_prices
 
-DEFAULT_DATASET = Path(__file__).resolve().parents[3] / "datasets" / "competitor-prices-vnd.csv"
+
+def _default_dataset_path(module_file: Path) -> Path:
+    module_directory = module_file.resolve().parent
+    backend_root = next(
+        (parent for parent in module_directory.parents if parent.name == "backend"),
+        None,
+    )
+    project_root = backend_root.parents[1] if backend_root else module_directory.parent
+    return project_root / "datasets" / "competitor-prices-vnd.csv"
+
+
+DEFAULT_DATASET = _default_dataset_path(Path(__file__))
 
 COUNT_FIELDS = (
     "rows_received",

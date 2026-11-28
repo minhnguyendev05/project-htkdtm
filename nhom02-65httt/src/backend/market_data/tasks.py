@@ -14,7 +14,7 @@ from .adapters import (
     RetailHtmlAdapter,
     TikiOpenApiAdapter,
 )
-from .load_postgres import crawl_active_products
+from .load_postgres import DEFAULT_DATASET, crawl_active_products
 from .normalize import load_dataset
 from .persistence import persist_competitor_prices
 
@@ -89,8 +89,7 @@ def crawl_and_store_task(
 
 @celery_app.task(name="market_data.tasks.validate_dataset_task")
 def validate_dataset_task():
-    default = Path(__file__).resolve().parents[3] / "datasets" / "competitor-prices-vnd.csv"
-    csv_path = Path(os.getenv("COMPETITOR_DATASET_PATH", str(default)))
+    csv_path = Path(os.getenv("COMPETITOR_DATASET_PATH", str(DEFAULT_DATASET)))
     if not csv_path.exists():
         return {"status": "CONFIG_REQUIRED", "message": f"Dataset not found: {csv_path}"}
     df = load_dataset(str(csv_path))
@@ -105,8 +104,7 @@ def validate_dataset_task():
 @celery_app.task(name="market_data.tasks.ingest_dataset_snapshot_task")
 def ingest_dataset_snapshot_task(input_path: str | None = None) -> dict:
     """Load the configured CSV snapshot into the canonical competitor tables."""
-    default = Path(__file__).resolve().parents[3] / "datasets" / "competitor-prices-vnd.csv"
-    source = Path(input_path or os.getenv("COMPETITOR_DATASET_PATH", str(default)))
+    source = Path(input_path or os.getenv("COMPETITOR_DATASET_PATH", str(DEFAULT_DATASET)))
     if not source.exists():
         return {"status": "CONFIG_REQUIRED", "message": f"Dataset not found: {source}"}
     return _crawl_and_store(

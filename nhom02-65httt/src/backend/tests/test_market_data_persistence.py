@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pandas as pd
 import pytest
 from app.models.erp import Category, Product
 from app.models.market import CompetitorPrice, CompetitorPriceHistory
 from app.worker.celery_app import celery_app
-from market_data.load_postgres import crawl_active_products
+from market_data.load_postgres import (
+    DEFAULT_DATASET,
+    _default_dataset_path,
+    crawl_active_products,
+)
 from market_data.persistence import persist_competitor_prices
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +25,16 @@ def test_market_data_tasks_use_the_shared_celery_app() -> None:
     assert "market_data.tasks.crawl_and_store_task" in celery_app.tasks
     assert "market_data.tasks.ingest_dataset_snapshot_task" in celery_app.tasks
     assert "market_data.tasks.crawl_active_products_task" in celery_app.tasks
+
+
+def test_default_dataset_path_supports_host_and_container_layouts() -> None:
+    assert DEFAULT_DATASET.name == "competitor-prices-vnd.csv"
+    assert _default_dataset_path(
+        Path("C:/repo/src/backend/market_data/load_postgres.py")
+    ) == Path("C:/repo/datasets/competitor-prices-vnd.csv")
+    assert _default_dataset_path(
+        Path("C:/app/market_data/load_postgres.py")
+    ) == Path("C:/app/datasets/competitor-prices-vnd.csv")
 
 
 def _records(price: int = 1_000_000) -> pd.DataFrame:
