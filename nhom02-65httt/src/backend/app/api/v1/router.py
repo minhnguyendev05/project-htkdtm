@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     audit_logs,
     auth,
     channels,
+    competitors,
     dashboard,
     executions,
     health,
@@ -23,6 +24,7 @@ api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(audit_logs.router)
 api_router.include_router(channels.router)
+api_router.include_router(competitors.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(executions.router)
 api_router.include_router(pricing_rules.router)

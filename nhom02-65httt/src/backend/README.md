@@ -104,6 +104,51 @@ Mọi endpoint dưới prefix `/api/v1` tuân thủ thống nhất:
   - `GET /audit-logs` (`AUDIT_READ`)
   - `GET /channels`, `GET /channel-fees`, `POST /channels/{channel_id}/test-connection`
   - `GET /dashboard` (`BI_READ`)
+  - `GET /competitor-prices` (`COMPETITOR_READ`), lọc theo SKU, marketplace và trạng thái khớp
+  - `GET /competitor-prices/{competitor_price_id}/history` (`COMPETITOR_READ`)
+  - `POST /crawler/run` (`COMPETITOR_WRITE`), enqueue adapter được cho phép vào Celery
+  - `POST /crawler/ingest-cdp` (`COMPETITOR_WRITE`), chuẩn hóa structured capture của Chrome CDP và nạp vào schema chuẩn
+  - `POST /competitor-prices/{competitor_price_id}/review` (`COMPETITOR_WRITE`), duyệt/từ chối match `NEEDS_REVIEW`, có audit log
   - `GET /executions`, `POST /executions`, `POST /executions/from-recommendation/{recommendation_id}`, `POST /executions/{execution_id}/retry`, `POST /executions/{execution_id}/cancel`
-- **Celery task:** `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
-- **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng đã tích hợp sẵn; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`.
+
+- **Celery tasks:**
+  - `app.worker.tasks.execute_price_sync_task(execution_id)` thực thi tác vụ `QUEUED` qua `MarketplaceAdapter`.
+  - `market_data.tasks.crawl_and_store_task` thu thập, chuẩn hóa và ghi `competitor_prices` cùng `competitor_price_history`.
+  - `market_data.tasks.crawl_active_products_task` được Celery Beat chạy hằng ngày lúc 02:00 giờ Việt Nam; yêu cầu ít nhất 60 SKU ACTIVE và crawl tối đa 100 SKU trên Tiki.
+- **Crawler đa nền tảng (`app/crawler/`):** Khung Mode A/B/C và dữ liệu mẫu kiểm chứng; xem [app/crawler/README.md](app/crawler/README.md) và `requirements-crawler.txt`. Dùng `/api/v1/crawler/run` để gọi adapter tích hợp trong `market_data/`.
+- **Cảnh báo sale sâu:** `fake_sale_warning` được bật khi giá tham chiếu hợp lệ cho thấy mức giảm từ 50% trở lên. Đây là cờ để người dùng kiểm tra, không kết luận gian lận; schema chuẩn không lưu lịch sử giá gốc/discount riêng.
+- **BI:** Migration `0003_market_data_bi_views.py` tạo các view `vw_bi_sales_profitability`, `vw_bi_competitor_price_history` và `vw_bi_pricing_strategy_performance`. Cấu hình chart Superset xem [bi/DASHBOARD_GUIDE.md](bi/DASHBOARD_GUIDE.md).
+
+### Nạp snapshot hoặc crawl 60–100 SKU vào PostgreSQL
+
+Sau khi PostgreSQL đã chạy và `alembic upgrade head` đã tạo schema 18 bảng,
+chạy trong thư mục backend:
+
+```powershell
+# Nạp toàn bộ snapshot CSV vào competitor_prices và competitor_price_history
+.\.venv\Scripts\python.exe -m market_data.load_postgres ..\..\datasets\competitor-prices-vnd.csv
+
+# Crawl sản phẩm ERP ACTIVE trên Tiki; mặc định yêu cầu ít nhất 60 SKU
+.\.venv\Scripts\python.exe -m market_data.load_postgres --crawl-active-products --limit 100 --min-products 60
+```
+
+Chế độ crawl lấy SKU từ bảng `products`; nó dừng có thông báo nếu chưa có đủ
+sản phẩm ACTIVE. Mỗi SKU dùng tên ERP làm từ khóa Tiki, giới hạn 20 kết quả,
+nghỉ ngẫu nhiên 2–4 giây giữa các yêu cầu và commit từng SKU để giữ tiến độ
+nếu một yêu cầu mạng thất bại. Không cần Redis cho lệnh CLI này.
+
+### Nạp dữ liệu từ Chrome CDP
+
+Collector CDP có thể gửi structured records sau khi crawl URL hoặc lắng nghe tab
+đang mở. Cấu hình endpoint và JWT của người dùng có quyền `COMPETITOR_WRITE`
+trong biến môi trường (không ghi token vào file theo dõi Git), sau đó chạy:
+
+```powershell
+$env:CRAWLER_CDP_INGEST_URL = "http://127.0.0.1:8000/api/v1/crawler/ingest-cdp"
+$env:CRAWLER_CDP_INGEST_TOKEN = "<JWT>"
+.\.venv\Scripts\python.exe -m app.crawler.chrome_cdp_collector --url "https://shopee.vn/"
+```
+
+Hoặc truyền `--ingest-url` và giữ token trong `CRAWLER_CDP_INGEST_TOKEN`.
+Endpoint chỉ nhận dữ liệu cấu trúc, không nhận URL để máy chủ đi crawl; các
+record không có mã sản phẩm, tên hoặc giá sẽ được tính vào `rowsSkipped`.

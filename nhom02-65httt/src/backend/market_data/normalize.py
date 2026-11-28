@@ -1,11 +1,11 @@
 from __future__ import annotations
+
 import re
 from pathlib import Path
+
 import pandas as pd
 
-REQUIRED_COLUMNS = {
-    "marketplace", "category", "product_id", "title", "price_vnd", "observed_at"
-}
+REQUIRED_COLUMNS = {"marketplace", "category", "product_id", "title", "price_vnd", "observed_at"}
 OPTIONAL_TEXT = ("category", "title", "brand", "seller", "url", "currency", "fx_source")
 
 
@@ -34,12 +34,19 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out["price_vnd"] = pd.to_numeric(out["price_vnd"], errors="coerce")
     out["observed_at"] = pd.to_datetime(out["observed_at"], errors="coerce", utc=True)
     out = out.dropna(subset=["marketplace", "product_id", "title", "price_vnd", "observed_at"])
-    out = out[(out["marketplace"] != "") & (out["product_id"] != "") & (out["title"] != "") & (out["price_vnd"] > 0)].copy()
+    out = out[
+        (out["marketplace"] != "")
+        & (out["product_id"] != "")
+        & (out["title"] != "")
+        & (out["price_vnd"] > 0)
+    ].copy()
     out["brand_norm"] = out["brand"].str.casefold().str.strip()
     out["title_norm"] = out["title"].str.casefold()
     out["confidence"] = out["confidence"].fillna(0.5).clip(0, 1)
     out["source_key"] = out["marketplace"] + ":" + out["product_id"]
-    return out.drop_duplicates(subset=["source_key", "observed_at"], keep="last").reset_index(drop=True)
+    return out.drop_duplicates(subset=["source_key", "observed_at"], keep="last").reset_index(
+        drop=True
+    )
 
 
 def load_dataset(csv_path: str | Path) -> pd.DataFrame:

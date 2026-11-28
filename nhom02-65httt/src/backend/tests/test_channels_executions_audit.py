@@ -1,4 +1,4 @@
-"""Tests for 18-table schema, Alembic 0002, channels, executions, and audit logs."""
+"""Tests for the 18-table schema, BI views, channels, executions, and audit logs."""
 
 from __future__ import annotations
 
@@ -61,9 +61,35 @@ def test_schema_has_all_18_tables_and_alembic_upgrades_cleanly(
             from sqlalchemy import create_engine
 
             check_engine = create_engine(f"sqlite+pysqlite:///{db_file.as_posix()}")
-            created_tables = set(inspect(check_engine).get_table_names())
+            inspector = inspect(check_engine)
+            created_tables = set(inspector.get_table_names())
+            created_views = set(inspector.get_view_names())
+            competitor_checks = inspector.get_check_constraints("competitor_prices")
             check_engine.dispose()
             assert expected_tables.issubset(created_tables)
+            assert {
+                "vw_bi_sales_profitability",
+                "vw_bi_competitor_price_history",
+                "vw_bi_pricing_strategy_performance",
+            }.issubset(created_views)
+            assert any(
+                "MANUALLY_MATCHED" in constraint["sqltext"]
+                for constraint in competitor_checks
+            )
+            command.downgrade(alembic_cfg, "0002_erp_smart_pricing_schema")
+            check_engine = create_engine(f"sqlite+pysqlite:///{db_file.as_posix()}")
+            inspector = inspect(check_engine)
+            assert not {
+                "vw_bi_sales_profitability",
+                "vw_bi_competitor_price_history",
+                "vw_bi_pricing_strategy_performance",
+            }.intersection(inspector.get_view_names())
+            downgraded_checks = inspector.get_check_constraints("competitor_prices")
+            assert all(
+                "MANUALLY_MATCHED" not in constraint["sqltext"]
+                for constraint in downgraded_checks
+            )
+            check_engine.dispose()
     finally:
         get_settings.cache_clear()
 

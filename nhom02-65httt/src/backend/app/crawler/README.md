@@ -37,8 +37,46 @@ cd nhom02-65httt\src\backend
      ```
    - Lưu ý: Output tạm `cdp_captured_payloads.json` đã được đưa vào `.gitignore`, không commit lên Git.
 
-## 3. Hướng phát triển tiếp cho thành viên phụ trách (Nghiêm Xuân Trường)
+## 3. Adapter, Celery và lưu trữ dữ liệu
 
-1. Tách các hàm crawl trong `multi_platform_crawler.py` thành 5 Adapter chuẩn ghi dữ liệu thật vào bảng `competitor_prices` và `competitor_price_history`.
-2. Cài đặt bước chuẩn hóa & khớp nối SKU (`RapidFuzz` ngưỡng `>= 85%` tự động khớp, `65%–84%` gắn `NEEDS_REVIEW`, `< 65%` bỏ qua) và gắn cờ `fake_sale_warning`.
-3. Xây dựng các API `GET/POST /api/v1/competitors`, `GET /api/v1/competitor-prices`, `POST /api/v1/crawler/run`, `POST /api/v1/crawler/ingest-cdp` và đăng ký lịch chạy định kỳ trong `app/worker/celery_app.py`.
+Bộ adapter chuẩn hóa đang nằm trong `market_data/adapters/`; task
+`market_data.tasks.crawl_and_store_task` được đăng ký trên Celery chung
+`app.worker.celery_app`. API `POST /api/v1/crawler/run` yêu cầu quyền
+`COMPETITOR_WRITE`; API `GET /api/v1/competitor-prices` và
+`GET /api/v1/competitor-prices/{id}/history` yêu cầu `COMPETITOR_READ`. Task lưu
+listing và lịch sử hằng ngày vào hai bảng ORM chuẩn `competitor_prices` và
+`competitor_price_history`, không dùng schema crawler riêng.
+
+API `POST /api/v1/crawler/ingest-cdp` nhận `structuredRecords` do Mode C
+collector trả về. Để gửi trực tiếp sau khi crawl, đặt
+`CRAWLER_CDP_INGEST_URL`, `CRAWLER_CDP_INGEST_TOKEN` (JWT có quyền
+`COMPETITOR_WRITE`) rồi chạy collector với `--url` hoặc `--listen`. API không
+truy cập các URL trong payload; nó chỉ nhận dữ liệu đã thu thập, chuẩn hóa và
+ghi vào các bảng ORM chuẩn. Payload được giới hạn tối đa 100 record mỗi request.
+
+Các bản ghi `NEEDS_REVIEW` có thể được lọc ở `GET /api/v1/competitor-prices`
+với `matchStatus=NEEDS_REVIEW`, rồi xử lý bằng
+`POST /api/v1/competitor-prices/{id}/review`. Duyệt sẽ gắn SKU ACTIVE và đặt
+trạng thái `MANUALLY_MATCHED`; từ chối sẽ đặt `REJECTED`. Cả hai quyết định đều
+cần lý do và được ghi vào `audit_logs`.
+
+Celery Beat chạy bulk crawl Tiki mỗi ngày lúc 02:00 theo múi giờ
+`Asia/Ho_Chi_Minh`; lệnh đòi hỏi tối thiểu 60 sản phẩm ERP ACTIVE, crawl tối đa
+100 sản phẩm và giữ khoảng nghỉ 2–4 giây giữa các lượt tìm kiếm. Cờ
+`fake_sale_warning` được bật khi giá niêm yết thấp hơn giá gốc hợp lệ ít nhất
+50%; đây là ngưỡng rà soát, không phải kết luận một listing gian lận.
+
+Các adapter hiện có: `tiki`, `lazada`, `retail_html`, `giarevn`,
+`price_history` và `dataset_snapshot`. Ví dụ gọi API:
+
+```http
+POST /api/v1/crawler/run
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{"adapterName":"tiki","keyword":"AirPods","limit":5,"skuCode":"ERP-AIRPODS-4"}
+```
+
+Schema được tạo/cập nhật bằng Alembic chuẩn của backend. URL gửi tới các adapter
+trang bán lẻ phải dùng HTTPS và đúng domain được cho phép; chuyển hướng bị từ
+chối.

@@ -1,15 +1,19 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+
 import random
 import time
+from abc import ABC, abstractmethod
+from datetime import UTC, datetime
+
+import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pandas as pd
+
 
 class CompetitorSourceAdapter(ABC):
     """Adapter contract: fetch returns rows using the shared market-data schema."""
+
     marketplace: str = "UNKNOWN"
 
     def __init__(self, timeout: int = 12, min_delay: float = 2.0, max_delay: float = 4.0):
@@ -17,12 +21,20 @@ class CompetitorSourceAdapter(ABC):
         self.min_delay = min_delay
         self.max_delay = max_delay
         self.session = requests.Session()
-        retry = Retry(total=3, connect=3, read=2, status=3,
-                      backoff_factor=1.0, status_forcelist=(429, 500, 502, 503, 504),
-                      allowed_methods=frozenset(["GET", "HEAD"]))
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=2,
+            status=3,
+            backoff_factor=1.0,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET", "HEAD"]),
+        )
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         self.session.mount("http://", HTTPAdapter(max_retries=retry))
-        self.session.headers.update({"User-Agent": "SmartPricingAcademicCrawler/1.0 (+course project)"})
+        self.session.headers.update(
+            {"User-Agent": "SmartPricingAcademicCrawler/1.0 (+course project)"}
+        )
 
     def polite_wait(self):
         if self.max_delay > 0:
@@ -36,7 +48,7 @@ class CompetitorSourceAdapter(ABC):
 
     @staticmethod
     def record(**kwargs) -> dict:
-        kwargs.setdefault("observed_at", datetime.now(timezone.utc).isoformat())
+        kwargs.setdefault("observed_at", datetime.now(UTC).isoformat())
         kwargs.setdefault("confidence", 0.7)
         return kwargs
 

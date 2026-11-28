@@ -116,7 +116,7 @@ class CompetitorPrice(CreatedAtMixin, Base):
             name="source_type_valid",
         ),
         CheckConstraint(
-            "match_status IN ('AUTO_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
+            "match_status IN ('AUTO_MATCHED', 'MANUALLY_MATCHED', 'NEEDS_REVIEW', 'REJECTED')",
             name="match_status_valid",
         ),
     )

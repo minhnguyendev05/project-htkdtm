@@ -1,7 +1,7 @@
-
 from __future__ import annotations
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 import pandas as pd
@@ -13,13 +13,25 @@ except ImportError:
 
 
 NOISE_WORDS = {
-    "chinh", "hang", "gia", "re", "cao", "cap",
-    "new", "moi", "sale", "official", "store"
+    "chinh",
+    "hang",
+    "gia",
+    "re",
+    "cao",
+    "cap",
+    "new",
+    "moi",
+    "sale",
+    "official",
+    "store",
 }
 
 
 def normalize_name(value: str) -> str:
     value = str(value or "").casefold()
+    value = value.replace("đ", "d")
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(char for char in value if not unicodedata.combining(char))
     value = re.sub(r"[^a-z0-9]+", " ", value)
     tokens = [t for t in value.split() if t not in NOISE_WORDS]
     return " ".join(tokens)
@@ -31,9 +43,7 @@ def extract_model(value: str) -> str:
     text = str(value or "").upper()
 
     # AirPods: phân biệt AirPods 4, AirPods Pro 3, AirPods Max
-    airpods = re.search(
-        r"\bAIRPODS?\s*(PRO\s*)?(\d+)\b", text
-    )
+    airpods = re.search(r"\bAIRPODS?\s*(PRO\s*)?(\d+)\b", text)
     if airpods:
         pro = "PRO" if airpods.group(1) else ""
         return f"AIRPODS{pro}{airpods.group(2)}"
@@ -65,59 +75,36 @@ def similarity(a: str, b: str) -> float:
     if fuzz:
         return float(fuzz.token_set_ratio(a_norm, b_norm))
 
-    return SequenceMatcher(
-        None, a_norm, b_norm
-    ).ratio() * 100
+    return SequenceMatcher(None, a_norm, b_norm).ratio() * 100
 
 
-def match_sku(
-    erp_product: dict,
-    competitor_product: dict
-) -> dict:
+def match_sku(erp_product: dict, competitor_product: dict) -> dict:
 
-    erp_name = str(
-        erp_product.get("name")
-        or erp_product.get("title")
-        or ""
-    )
+    erp_name = str(erp_product.get("name") or erp_product.get("title") or "")
 
     comp_name = str(
-        competitor_product.get("title")
-        or competitor_product.get("product_title")
-        or ""
+        competitor_product.get("title") or competitor_product.get("product_title") or ""
     )
 
-    erp_brand = normalize_name(
-        erp_product.get("brand") or ""
-    )
+    erp_brand = normalize_name(erp_product.get("brand") or "")
 
-    comp_brand = normalize_name(
-        competitor_product.get("brand") or ""
-    )
+    comp_brand = normalize_name(competitor_product.get("brand") or "")
 
     name_score = similarity(erp_name, comp_name)
 
     brand_known = bool(erp_brand and comp_brand)
-    brand_match = (
-        erp_brand == comp_brand if brand_known else None
-    )
+    brand_match = erp_brand == comp_brand if brand_known else None
 
     model_a = extract_model(erp_name)
     model_b = extract_model(comp_name)
 
     # Có mã model ở cả hai bên nhưng khác nhau
-    model_conflict = bool(
-        model_a and model_b and model_a != model_b
-    )
+    model_conflict = bool(model_a and model_b and model_a != model_b)
 
     # ERP không có model cụ thể nhưng đối thủ có model
-    model_missing_in_erp = bool(
-        not model_a and model_b
-    )
+    model_missing_in_erp = bool(not model_a and model_b)
 
-    brand_conflict = bool(
-        brand_known and erp_brand != comp_brand
-    )
+    brand_conflict = bool(brand_known and erp_brand != comp_brand)
 
     score = name_score
 
@@ -144,13 +131,9 @@ def match_sku(
         status = "REJECTED"
 
     return {
-        "erp_sku": (
-            erp_product.get("sku")
-            or erp_product.get("product_id")
-        ),
+        "erp_sku": (erp_product.get("sku") or erp_product.get("product_id")),
         "competitor_product_id": (
-            competitor_product.get("product_id")
-            or competitor_product.get("external_product_id")
+            competitor_product.get("product_id") or competitor_product.get("external_product_id")
         ),
         "marketplace": competitor_product.get("marketplace"),
         "score": round(score, 2),
@@ -164,29 +147,18 @@ def match_sku(
 
 
 def match_catalog(
-    erp_products: list[dict],
-    competitor_products: pd.DataFrame,
-    top_n: int = 5
+    erp_products: list[dict], competitor_products: pd.DataFrame, top_n: int = 5
 ) -> pd.DataFrame:
-
     """Tìm top-N sản phẩm đối thủ cho từng SKU ERP."""
 
     results = []
-    candidates = competitor_products.to_dict(
-        orient="records"
-    )
+    candidates = competitor_products.to_dict(orient="records")
 
     for erp in erp_products:
-        scored = [
-            match_sku(erp, cp)
-            for cp in candidates
-        ]
+        scored = [match_sku(erp, cp) for cp in candidates]
 
-        scored.sort(
-            key=lambda x: x["score"],
-            reverse=True
-        )
+        scored.sort(key=lambda x: x["score"], reverse=True)
 
-        results.extend(scored[:max(1, int(top_n))])
+        results.extend(scored[: max(1, int(top_n))])
 
     return pd.DataFrame(results)
