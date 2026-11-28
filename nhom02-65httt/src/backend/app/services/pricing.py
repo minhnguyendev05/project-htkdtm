@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.db.base import utc_now
+from app.ml.demand_baseline import forecast_demand_ml
 from app.models.erp import Category, CostComponent, Inventory, Product, SupplierProduct
 from app.models.market import ChannelProduct, CompetitorPrice, SalesChannel, SalesRecord
 from app.models.pricing import PriceApproval, PriceRecommendation, PricingRule
@@ -171,7 +172,7 @@ def _collect_sales_signal(
     db: Session,
     product: Product,
     channel: SalesChannel,
-) -> tuple[list[float], float, float]:
+) -> tuple[list[SalesRecord], list[float], float, float]:
     records = db.scalars(
         select(SalesRecord)
         .where(
@@ -182,7 +183,7 @@ def _collect_sales_signal(
         .limit(30)
     ).all()
     if not records:
-        return [], 1.0, 0.0
+        return [], [], 1.0, 0.0
 
     ordered = list(reversed(records))
     history = [float(max(0, r.quantity)) for r in ordered]
@@ -196,42 +197,60 @@ def _collect_sales_signal(
         if prev_avg > 0:
             growth = max(-0.5, min(1.0, (recent_avg - prev_avg) / prev_avg))
 
-    return history, max(0.0, avg_daily), growth
+    return ordered, history, max(0.0, avg_daily), growth
 
 
-def _resolve_active_rule(
+def _resolve_active_rules_and_guards(
     db: Session,
     *,
     rule_id: UUID | None,
     category_id: UUID,
     channel_id: UUID,
     now: datetime,
-) -> PricingRule | None:
+) -> tuple[PricingRule | None, list[PricingRule], list[dict[str, Any]]]:
+    """Resolve primary active rule, applicable MARGIN_GUARD rules, and priority/scope conflicts."""
+    explicit_rule: PricingRule | None = None
     if rule_id is not None:
-        rule = db.get(PricingRule, rule_id)
-        if rule is None:
+        explicit_rule = db.get(PricingRule, rule_id)
+        if explicit_rule is None:
             raise NotFoundError("Không tìm thấy quy tắc định giá.")
-        return rule
 
-    candidates = db.scalars(
+    all_active = db.scalars(
         select(PricingRule)
         .where(PricingRule.status == "ACTIVE")
         .order_by(PricingRule.priority.asc(), PricingRule.created_at.desc())
     ).all()
 
-    for rule in candidates:
+    matching: list[PricingRule] = []
+    for rule in all_active:
         starts = _as_utc(rule.starts_at)
         ends = _as_utc(rule.ends_at) if rule.ends_at is not None else None
-        if starts > now:
-            continue
-        if ends is not None and ends < now:
+        if starts > now or (ends is not None and ends < now):
             continue
         if rule.channel_id is not None and rule.channel_id != channel_id:
             continue
         if rule.category_id is not None and rule.category_id != category_id:
             continue
-        return rule
-    return None
+        matching.append(rule)
+
+    guards = [rule for rule in matching if rule.rule_type == "MARGIN_GUARD"]
+    non_guards = [rule for rule in matching if rule.rule_type != "MARGIN_GUARD"]
+
+    rule_conflicts: list[dict[str, Any]] = []
+    for idx, left in enumerate(non_guards):
+        for right in non_guards[idx + 1 :]:
+            if left.priority == right.priority and left.scope_label == right.scope_label:
+                rule_conflicts.append(
+                    {
+                        "code": "RULE_PRIORITY_CONFLICT",
+                        "priority": left.priority,
+                        "scopeLabel": left.scope_label,
+                        "rules": [left.name, right.name],
+                    }
+                )
+
+    primary = explicit_rule or (non_guards[0] if non_guards else None)
+    return primary, guards, rule_conflicts
 
 
 def _select_strategy_override(
@@ -258,6 +277,9 @@ def _build_explanation_payload(
     competitor_median: Decimal | None,
     competitor_fresh: bool,
     data_quality: str,
+    rule_conflicts: list[dict[str, Any]] | None = None,
+    ml_model_used: str | None = None,
+    ml_predicted_demand: float | None = None,
 ) -> dict[str, Any]:
     factors: list[dict[str, Any]] = [
         {
@@ -330,6 +352,9 @@ def _build_explanation_payload(
             "confidence": round(engine_result.confidence, 4),
             "risk": engine_result.risk.to_dict(),
             "conflicts": engine_result.conflicts.to_dict(),
+            "ruleConflicts": rule_conflicts or [],
+            "mlModelUsed": ml_model_used,
+            "mlPredictedDemand": ml_predicted_demand,
             "forecast": engine_result.forecast,
         },
     }
@@ -346,6 +371,8 @@ def _evaluate_catalog_product(
     competitor_strategy: str,
     stock_strategy: str,
     active_rule: PricingRule | None,
+    guard_rules: list[PricingRule],
+    rule_conflicts: list[dict[str, Any]],
     now: datetime,
     price_step_override: Decimal | None = None,
 ) -> tuple[PricingResult, dict[str, Any]]:
@@ -354,7 +381,14 @@ def _evaluate_catalog_product(
     category = db.get(Category, product.category_id)
     inventory = db.scalar(select(Inventory).where(Inventory.product_id == product.id))
     comp = _collect_competitor_signal(db, product, channel, now=now)
-    history, velocity, growth = _collect_sales_signal(db, product, channel)
+    sales_records, history, velocity, growth = _collect_sales_signal(db, product, channel)
+
+    ml_model_used: str | None = None
+    ml_predicted_demand: float | None = None
+    if mode == "ML_ASSISTED" and sales_records:
+        ml_forecast = forecast_demand_ml(sales_records, target_price=float(current_price))
+        if ml_forecast is not None:
+            ml_predicted_demand, growth, ml_model_used = ml_forecast
 
     available_qty = (
         max(0, inventory.on_hand_qty - inventory.reserved_qty) if inventory is not None else 50
@@ -377,6 +411,9 @@ def _evaluate_catalog_product(
     if active_rule is not None:
         effective_min_margin = max(effective_min_margin, Decimal(active_rule.min_margin))
         max_change_pct = Decimal(active_rule.max_price_change_pct)
+    for guard in guard_rules:
+        effective_min_margin = max(effective_min_margin, Decimal(guard.min_margin))
+        max_change_pct = min(max_change_pct, Decimal(guard.max_price_change_pct))
 
     competitor_price = (
         float(comp["median"])
@@ -429,6 +466,9 @@ def _evaluate_catalog_product(
         "current_price": current_price,
         "effective_min_margin": effective_min_margin,
         "competitor": comp,
+        "rule_conflicts": rule_conflicts,
+        "ml_model_used": ml_model_used,
+        "ml_predicted_demand": ml_predicted_demand,
     }
 
 
@@ -496,7 +536,7 @@ def preview_pricing(db: Session, payload: PricingPreviewRequest) -> PricingPrevi
             product = db.get(Product, sku_id)
             if product is None:
                 continue
-            active_rule = _resolve_active_rule(
+            active_rule, guard_rules, rule_conflicts = _resolve_active_rules_and_guards(
                 db,
                 rule_id=None,
                 category_id=product.category_id,
@@ -513,6 +553,8 @@ def preview_pricing(db: Session, payload: PricingPreviewRequest) -> PricingPrevi
                 competitor_strategy=payload.competitor_strategy,
                 stock_strategy=payload.stock_strategy,
                 active_rule=active_rule,
+                guard_rules=guard_rules,
+                rule_conflicts=rule_conflicts,
                 now=now,
                 price_step_override=payload.price_step,
             )
@@ -698,9 +740,9 @@ def execute_pricing_run(
         if product is None:
             continue
 
-        active_rule = explicit_rule or _resolve_active_rule(
+        active_rule, guard_rules, rule_conflicts = _resolve_active_rules_and_guards(
             db,
-            rule_id=None,
+            rule_id=explicit_rule.id if explicit_rule is not None else None,
             category_id=product.category_id,
             channel_id=channel.id,
             now=now,
@@ -716,6 +758,8 @@ def execute_pricing_run(
             competitor_strategy=payload.competitor_strategy,
             stock_strategy=payload.stock_strategy,
             active_rule=active_rule,
+            guard_rules=guard_rules,
+            rule_conflicts=rule_conflicts,
             now=now,
         )
 
@@ -731,6 +775,7 @@ def execute_pricing_run(
         current_price: Decimal = ctx["current_price"]
         effective_min_margin: Decimal = ctx["effective_min_margin"]
         comp: dict[str, Any] = ctx["competitor"]
+        ml_predicted_demand: float | None = ctx["ml_predicted_demand"]
 
         floor_price = _money(engine_res.floor_price)
         recommended_price = _money(engine_res.recommended_price)
@@ -742,7 +787,11 @@ def execute_pricing_run(
             if recommended_price > 0
             else Decimal("0.0000")
         )
-        forecast_demand_raw = engine_res.forecast.get("demand")
+        forecast_demand_raw = (
+            ml_predicted_demand
+            if ml_predicted_demand is not None
+            else engine_res.forecast.get("demand")
+        )
         predicted_demand = (
             _money(forecast_demand_raw)
             if isinstance(forecast_demand_raw, (int, float))
@@ -764,6 +813,9 @@ def execute_pricing_run(
             competitor_median=comp["median"],
             competitor_fresh=comp["fresh"],
             data_quality=comp["data_quality"],
+            rule_conflicts=ctx["rule_conflicts"],
+            ml_model_used=ctx["ml_model_used"],
+            ml_predicted_demand=ml_predicted_demand,
         )
 
         rec = PriceRecommendation(

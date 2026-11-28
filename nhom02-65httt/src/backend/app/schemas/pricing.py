@@ -256,3 +256,27 @@ class RecommendationDecisionRequest(ApiModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+
+class ModelTrainRequest(ApiModel):
+    """Request payload to run LinearRegression vs XGBoost evaluation on SalesRecord data."""
+
+    product_id: UUID | None = None
+    channel_id: UUID | None = None
+    split_ratio: float = Field(default=0.8, ge=0.5, le=0.95)
+
+
+class ModelRunRead(ApiModel):
+    """Persisted ML training run evaluation metrics (MAE, RMSE)."""
+
+    id: UUID
+    model_name: str
+    model_version: str
+    algorithm_type: str
+    feature_columns_json: list[str]
+    train_samples: int
+    test_samples: int
+    mae: Decimal
+    rmse: Decimal
+    artifact_path: str | None
+    trained_at: datetime
